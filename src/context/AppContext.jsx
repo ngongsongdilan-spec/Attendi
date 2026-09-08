@@ -1,4 +1,18 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { 
+  mockSchoolYears, 
+  mockSemesters, 
+  mockStudents, 
+  mockCourses, 
+  mockAttendance,
+  getCurrentSchoolYear,
+  getCurrentSemester,
+  getCoursesByLevelAndSemester,
+  getEnrolledCourses,
+  getEnrolledCoursesForSemester,
+  getStudentAttendance,
+  getStudentAttendancePercentage
+} from '../data/mockData';
 
 const AppContext = createContext();
 
@@ -16,31 +30,34 @@ const saveToStorage = (key, data) => {
 
 export const AppProvider = ({ children }) => {
   // ===== SCHOOL YEARS =====
-  const [schoolYears, setSchoolYears] = useState(() => {
-    const defaultYears = [
-      { id: 1, name: '2023/2024', startDate: '2023-09-01', endDate: '2024-06-30', isActive: false },
-      { id: 2, name: '2024/2025', startDate: '2024-09-01', endDate: '2025-06-30', isActive: true },
-      { id: 3, name: '2025/2026', startDate: '2025-09-01', endDate: '2026-06-30', isActive: false },
-    ];
-    return loadFromStorage('fet_school_years', defaultYears);
-  });
+  const [schoolYears, setSchoolYears] = useState(() => 
+    loadFromStorage('fet_school_years', mockSchoolYears)
+  );
 
   // ===== SEMESTERS =====
-  const [semesters, setSemesters] = useState(() => {
-    const defaultSemesters = [
-      { id: 1, name: 'First Semester', shortName: 'Sem 1', schoolYear: '2024/2025', startDate: '2024-09-01', endDate: '2024-12-20', isActive: true, isCurrent: true },
-      { id: 2, name: 'Second Semester', shortName: 'Sem 2', schoolYear: '2024/2025', startDate: '2025-01-10', endDate: '2025-06-30', isActive: false, isCurrent: false },
-      { id: 3, name: 'First Semester', shortName: 'Sem 1', schoolYear: '2023/2024', startDate: '2023-09-01', endDate: '2023-12-20', isActive: false, isCurrent: false },
-      { id: 4, name: 'Second Semester', shortName: 'Sem 2', schoolYear: '2023/2024', startDate: '2024-01-10', endDate: '2024-06-30', isActive: false, isCurrent: false },
-    ];
-    return loadFromStorage('fet_semesters', defaultSemesters);
-  });
+  const [semesters, setSemesters] = useState(() => 
+    loadFromStorage('fet_semesters', mockSemesters)
+  );
 
-  // ===== OTHER DATA =====
-  const [students, setStudents] = useState(() => loadFromStorage('fet_students', []));
-  const [courses, setCourses] = useState(() => loadFromStorage('fet_courses', []));
-  const [attendance, setAttendance] = useState(() => loadFromStorage('fet_attendance', []));
-  const [activities, setActivities] = useState(() => loadFromStorage('fet_activities', []));
+  // ===== STUDENTS =====
+  const [students, setStudents] = useState(() => 
+    loadFromStorage('fet_students', mockStudents)
+  );
+
+  // ===== COURSES =====
+  const [courses, setCourses] = useState(() => 
+    loadFromStorage('fet_courses', mockCourses)
+  );
+
+  // ===== ATTENDANCE =====
+  const [attendance, setAttendance] = useState(() => 
+    loadFromStorage('fet_attendance', mockAttendance)
+  );
+
+  // ===== ACTIVITIES =====
+  const [activities, setActivities] = useState(() => 
+    loadFromStorage('fet_activities', [])
+  );
 
   // ===== GET CURRENT =====
   const currentSchoolYear = schoolYears.find(y => y.isActive === true) || schoolYears[0];
@@ -116,32 +133,57 @@ export const AppProvider = ({ children }) => {
     if (semester) addActivity('System', `switched to ${semester.name} ${semester.schoolYear}`);
   };
 
-  // ===== HELPER FUNCTIONS =====
-  const getSemesterCourses = (semesterName, schoolYearName) => {
+  // ===== COURSE HELPERS =====
+  const getCoursesForStudent = (matricule) => {
+    const student = students.find(s => s.matricule === matricule);
+    if (!student) return [];
+    
+    // Get enrolled courses for current semester
     return courses.filter(c => 
-      c.semester === semesterName && 
-      c.schoolYear === schoolYearName
+      student.enrolledCourses.includes(c.id) &&
+      c.level === parseInt(student.level) &&
+      c.semester === currentSemester?.name &&
+      c.schoolYear === currentSchoolYear?.name
     );
   };
 
-  const getStudentSemesterAttendance = (matricule, semesterName, schoolYearName) => {
-    return attendance.filter(a => 
-      a.studentMatricule === matricule &&
-      a.semester === semesterName &&
-      a.schoolYear === schoolYearName
+  const getAllCoursesForLevel = (level) => {
+    return courses.filter(c => c.level === parseInt(level));
+  };
+
+  const getAvailableCoursesForEnrollment = (studentMatricule) => {
+    const student = students.find(s => s.matricule === studentMatricule);
+    if (!student) return [];
+    
+    return courses.filter(c => 
+      c.level === parseInt(student.level) &&
+      c.semester === currentSemester?.name &&
+      c.schoolYear === currentSchoolYear?.name &&
+      !student.enrolledCourses.includes(c.id)
     );
+  };
+
+  const getEnrolledCourses = (matricule) => {
+    const student = students.find(s => s.matricule === matricule);
+    if (!student) return [];
+    return courses.filter(c => student.enrolledCourses.includes(c.id));
   };
 
   const getCurrentSemesterStats = (studentMatricule) => {
-    const sem = currentSemester;
-    const year = currentSchoolYear;
-    const studentAttendance = getStudentSemesterAttendance(studentMatricule, sem?.name, year?.name);
+    const student = students.find(s => s.matricule === studentMatricule);
+    if (!student) return { attendance: 0, totalClasses: 0, present: 0, absent: 0 };
+    
+    const studentAttendance = attendance.filter(a => 
+      a.studentMatricule === studentMatricule &&
+      a.semester === currentSemester?.name &&
+      a.schoolYear === currentSchoolYear?.name
+    );
     const present = studentAttendance.filter(a => a.status === 'Present').length;
     const total = studentAttendance.length || 1;
     
     return {
-      semester: sem,
-      schoolYear: year,
+      semester: currentSemester,
+      schoolYear: currentSchoolYear,
       attendance: Math.round((present / total) * 100),
       totalClasses: total,
       present: present,
@@ -166,8 +208,10 @@ export const AppProvider = ({ children }) => {
     updateSemester,
     deleteSemester,
     switchSemester,
-    getSemesterCourses,
-    getStudentSemesterAttendance,
+    getCoursesForStudent,
+    getAllCoursesForLevel,
+    getAvailableCoursesForEnrollment,
+    getEnrolledCourses,
     getCurrentSemesterStats,
     addActivity,
   };

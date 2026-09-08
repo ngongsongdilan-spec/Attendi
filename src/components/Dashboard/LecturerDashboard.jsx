@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Users, FolderKanban, CheckCircle, Clock, Award, BarChart3, FileText, AlertCircle, UserPlus } from 'lucide-react';
 import StatsCard from './StatsCard';
 import ActivityFeed from './ActivityFeed';
-import { mockStudents, mockProjects, mockTasks, mockAttendance } from '../../Data/mockData';
+
+// ✅ CORRECT IMPORTS
+import { mockStudents, mockLecturers, mockProjects, mockTasks, mockAttendance } from '../../data/mockData';
 
 const LecturerDashboard = ({ user }) => {
   const [stats, setStats] = useState({ students: 0, projects: 0, tasks: 0, assessments: 0, pending: 0 });
@@ -14,7 +16,13 @@ const LecturerDashboard = ({ user }) => {
     const totalTasks = mockTasks.length;
     const pending = mockTasks.filter(t => t.status !== 'Completed').length;
 
-    setStats({ students: totalStudents, projects: totalProjects, tasks: totalTasks, assessments: 3, pending });
+    setStats({
+      students: totalStudents,
+      projects: totalProjects,
+      tasks: totalTasks,
+      assessments: 3,
+      pending: pending,
+    });
 
     setAtRisk([
       { name: 'James Miller', course: 'ME301', issue: 'Low Attendance', score: '45%' },
@@ -50,11 +58,12 @@ const LecturerDashboard = ({ user }) => {
             {[
               { course: 'Data Structures (CS301)', progress: 78, students: 32 },
               { course: 'Algorithms (CS302)', progress: 65, students: 28 },
-              { course: 'Software Engineering (SE401)', progress: 82, students: 30 },
             ].map((c, i) => (
               <div key={i} className="p-3 bg-[#EDEEEF] rounded-xl mb-3">
                 <div className="flex justify-between"><span className="font-medium">{c.course}</span><span>{c.progress}%</span></div>
-                <div className="w-full h-2 bg-[#D9DADB] rounded-full"><div className="h-full bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] rounded-full" style={{ width: `${c.progress}%` }}></div></div>
+                <div className="w-full h-2 bg-[#D9DADB] rounded-full">
+                  <div className="h-full bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] rounded-full" style={{ width: `${c.progress}%` }}></div>
+                </div>
                 <p className="text-xs text-[#47464F] mt-1">{c.students} students</p>
               </div>
             ))}
@@ -67,11 +76,13 @@ const LecturerDashboard = ({ user }) => {
             </h3>
             {[
               { student: 'Emma Watson', assignment: 'Assignment 3', course: 'Data Structures', submitted: '2 hours ago' },
-              { student: 'James Miller', assignment: 'Project Proposal', course: 'Software Engineering', submitted: '4 hours ago' },
             ].map((r, i) => (
               <div key={i} className="flex items-center justify-between p-3 border-b border-[#C8C5D0] last:border-0">
                 <div><p className="font-medium">{r.student}</p><p className="text-sm text-[#47464F]">{r.assignment} • {r.course}</p></div>
-                <div className="flex items-center gap-3"><span className="text-xs text-[#47464F]">{r.submitted}</span><button className="px-3 py-1 bg-[#3B82F6] text-white rounded-lg text-xs font-medium hover:bg-[#3B82F6]/90">Review</button></div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-[#47464F]">{r.submitted}</span>
+                  <button className="px-3 py-1 bg-[#3B82F6] text-white rounded-lg text-xs font-medium hover:bg-[#3B82F6]/90">Review</button>
+                </div>
               </div>
             ))}
           </div>

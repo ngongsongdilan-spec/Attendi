@@ -3,24 +3,21 @@ import { useAppContext } from '../../context/AppContext';
 import { 
   BookOpen, Clock, CheckCircle, Award, Calendar, 
   Users, TrendingUp, FileText, Bell, ChevronRight,
-  GraduationCap, BarChart3, Activity, AlertCircle,
-  BookMarked, Target, FolderKanban
+  GraduationCap, BarChart3, BookMarked
 } from 'lucide-react';
 import StatsCard from './StatsCard';
 import ActivityFeed from './ActivityFeed';
-import { 
-  mockTasks, mockAnnouncements, mockProjects, mockGroups,
-  getStudentAttendancePercentage, getStudentCourses, getStudentAttendance
-} from '../../data/mockData';
+
+// ✅ These imports now work because they're exported from mockData.js
+import { mockTasks, mockAnnouncements, mockProjects, mockGroups } from '../../data/mockData';
 
 const StudentDashboard = ({ user }) => {
   const { 
     activities, 
     currentSemester, 
     currentSchoolYear,
-    getCurrentSemesterStats,
-    getSemesterCourses,
-    getStudentSemesterAttendance
+    getCoursesForStudent,
+    getCurrentSemesterStats
   } = useAppContext();
   
   const [stats, setStats] = useState({
@@ -42,26 +39,17 @@ const StudentDashboard = ({ user }) => {
   const studentAdmissionYear = user?.admissionYear || '2024/2025';
 
   useEffect(() => {
-    // Get student courses for current semester
-    const courses = getSemesterCourses(currentSemester?.name, currentSchoolYear?.name);
-    const studentEnrolledCourses = courses.filter(c => 
-      user?.courses?.includes(c.id) || Math.random() > 0.3
-    );
-    setStudentCourses(studentEnrolledCourses);
+    const courses = getCoursesForStudent(studentMatricule);
+    setStudentCourses(courses);
     
-    // Calculate stats
-    const totalCourses = studentEnrolledCourses.length;
-    const totalCredits = studentEnrolledCourses.reduce((acc, c) => acc + (c.credits || 3), 0);
-    
-    // Get semester attendance
+    const totalCourses = courses.length;
+    const totalCredits = courses.reduce((acc, c) => acc + (c.credits || 3), 0);
     const semStats = getCurrentSemesterStats(studentMatricule);
     
-    // Get tasks for student
     const studentTasks = mockTasks.filter(t => t.assignedTo === studentMatricule);
     const pendingTasks = studentTasks.filter(t => t.status !== 'Completed').length;
     const completedTasks = studentTasks.filter(t => t.status === 'Completed').length;
     
-    // Get projects
     const studentProjects = mockProjects.filter(p => {
       const group = mockGroups.find(g => g.projectId === p.id);
       return group?.members.includes(studentMatricule);
@@ -76,10 +64,8 @@ const StudentDashboard = ({ user }) => {
       totalCredits,
     });
 
-    // Get recent announcements
     setRecentAnnouncements(mockAnnouncements.slice(0, 3));
 
-    // Get deadlines
     const deadlines = mockTasks
       .filter(t => t.assignedTo === studentMatricule && t.status !== 'Completed')
       .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
@@ -97,10 +83,7 @@ const StudentDashboard = ({ user }) => {
 
   const formatDate = (date) => {
     return new Date(date).toLocaleDateString('en-US', { 
-      weekday: 'short', 
-      month: 'short', 
-      day: 'numeric',
-      year: 'numeric'
+      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
     });
   };
 
@@ -121,104 +104,84 @@ const StudentDashboard = ({ user }) => {
 
   return (
     <div className="space-y-6">
-      {/* Welcome Header */}
       <div className="bg-gradient-to-r from-[#1E1B4B] to-[#2A1F6E] rounded-2xl p-6 text-white">
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
-            <div className="flex items-center gap-3">
-              <h2 className="text-2xl font-bold">Welcome back, {studentName} 😊</h2>
-              <span className="px-2 py-1 bg-white/20 rounded-full text-xs font-medium">
-                {currentSemester?.name || 'First Semester'}
-              </span>
-            </div>
-            <p className="text-[#8683BA] mt-1">
-              <span className="font-mono">{studentMatricule}</span>
+            <h2 className="text-2xl font-bold">Welcome back, {studentName} 😊</h2>
+            <p className="text-[#8683BA] mt-1 font-mono">{studentMatricule}</p>
+            <p className="text-[#8683BA] text-sm">Level {studentLevel} • {studentDepartment}</p>
+            <p className="text-[#8683BA] text-xs mt-1">
+              {currentSemester?.name} {currentSchoolYear?.name}
             </p>
-            <p className="text-[#8683BA] text-sm">
-              Level {studentLevel} • {studentDepartment}
-            </p>
-            <p className="text-[#8683BA] text-xs mt-1 flex items-center gap-2">
-              <span className="bg-white/20 px-2 py-0.5 rounded-full">
-                {currentSemester?.name || 'First Semester'}
-              </span>
-              <span>{currentSchoolYear?.name || '2024/2025'}</span>
-            </p>
-            <p className="text-[#8683BA] text-xs">🎓 Admitted: {studentAdmissionYear}</p>
           </div>
           <div className="flex gap-4">
-            <div className="bg-white/10 rounded-xl p-3 text-center min-w-[100px]">
+            <div className="bg-white/10 rounded-xl p-3 text-center min-w-[80px]">
               <p className="text-xs text-[#8683BA]">Attendance</p>
-              <p className="text-2xl font-bold">{stats.attendance}%</p>
+              <p className="text-xl font-bold">{stats.attendance}%</p>
             </div>
-            <div className="bg-white/10 rounded-xl p-3 text-center min-w-[100px]">
+            <div className="bg-white/10 rounded-xl p-3 text-center min-w-[80px]">
               <p className="text-xs text-[#8683BA]">Credits</p>
-              <p className="text-2xl font-bold">{stats.totalCredits}</p>
+              <p className="text-xl font-bold">{stats.totalCredits}</p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((stat, index) => (
           <StatsCard key={index} {...stat} />
         ))}
       </div>
 
-      {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column */}
         <div className="lg:col-span-2 space-y-6">
-          
-          {/* Current Courses */}
           <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-[#191C1D] flex items-center gap-2">
                 <BookMarked size={20} className="text-[#3B82F6]" />
-                Current Courses
+                Enrolled Courses ({currentSemester?.name})
               </h3>
-              <button className="text-[#3B82F6] text-sm font-medium hover:underline">View All</button>
+              <span className="text-xs text-[#47464F]">Level {studentLevel}</span>
             </div>
             <div className="space-y-3">
               {studentCourses.length > 0 ? (
                 studentCourses.map((course, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 bg-[#EDEEEF] rounded-xl hover:bg-[#E7E8E9] transition-colors">
+                  <div key={index} className="flex items-center justify-between p-3 bg-[#EDEEEF] rounded-xl hover:bg-[#E7E8E9]">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-lg bg-[#3B82F6]/10 flex items-center justify-center">
                         <BookOpen size={18} className="text-[#3B82F6]" />
                       </div>
                       <div>
-                        <p className="font-medium text-[#191C1D]">{course.id}</p>
+                        <p className="font-medium">{course.id}</p>
                         <p className="text-sm text-[#47464F]">{course.name}</p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs text-[#47464F]">{course.credits || 3} Credits</p>
+                      <p className="text-xs text-[#47464F]">{course.credits} Credits</p>
                       <p className="text-xs text-[#47464F]">{course.lecturer}</p>
                     </div>
                   </div>
                 ))
               ) : (
-                <p className="text-center text-[#47464F] py-4">No courses enrolled for this semester</p>
+                <div className="text-center py-8">
+                  <BookOpen size={32} className="mx-auto text-[#47464F] opacity-50" />
+                  <p className="text-[#47464F]">No courses enrolled</p>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Upcoming Deadlines */}
           <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-[#191C1D] flex items-center gap-2">
-                <Clock size={20} className="text-[#F59E0B]" />
-                Upcoming Deadlines
-              </h3>
-              <button className="text-[#3B82F6] text-sm font-medium hover:underline">View All</button>
-            </div>
-            <div className="space-y-3">
+            <h3 className="text-lg font-semibold text-[#191C1D] flex items-center gap-2">
+              <Clock size={20} className="text-[#F59E0B]" />
+              Upcoming Deadlines
+            </h3>
+            <div className="space-y-3 mt-4">
               {upcomingDeadlines.length > 0 ? (
                 upcomingDeadlines.map((task) => (
-                  <div key={task.id} className="flex items-center justify-between p-3 bg-[#EDEEEF] rounded-xl hover:bg-[#E7E8E9] transition-colors">
+                  <div key={task.id} className="flex items-center justify-between p-3 bg-[#EDEEEF] rounded-xl">
                     <div>
-                      <p className="font-medium text-[#191C1D]">{task.title}</p>
+                      <p className="font-medium">{task.title}</p>
                       <p className="text-xs text-[#47464F]">Due: {formatDate(task.dueDate)}</p>
                     </div>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -231,59 +194,47 @@ const StudentDashboard = ({ user }) => {
                   </div>
                 ))
               ) : (
-                <p className="text-center text-[#47464F] py-4">🎉 No upcoming deadlines!</p>
+                <p className="text-center py-4 text-[#47464F]">🎉 No upcoming deadlines!</p>
               )}
             </div>
           </div>
         </div>
 
-        {/* Right Column */}
         <div className="space-y-6">
-          
-          {/* Quick Stats */}
           <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-6">
             <h3 className="text-lg font-semibold text-[#191C1D] flex items-center gap-2 mb-4">
               <BarChart3 size={20} className="text-[#3B82F6]" />
               Quick Stats
             </h3>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-2 bg-[#EDEEEF] rounded-lg">
-                <span className="text-sm text-[#47464F]">📚 Total Courses</span>
-                <span className="font-bold text-[#191C1D]">{stats.totalCourses}</span>
+            <div className="space-y-2">
+              <div className="flex justify-between p-2 bg-[#EDEEEF] rounded-lg">
+                <span className="text-sm">📚 Courses</span>
+                <span className="font-bold">{stats.totalCourses}</span>
               </div>
-              <div className="flex items-center justify-between p-2 bg-[#EDEEEF] rounded-lg">
-                <span className="text-sm text-[#47464F]">📁 Projects</span>
-                <span className="font-bold text-[#191C1D]">{stats.activeProjects}</span>
+              <div className="flex justify-between p-2 bg-[#EDEEEF] rounded-lg">
+                <span className="text-sm">📁 Projects</span>
+                <span className="font-bold">{stats.activeProjects}</span>
               </div>
-              <div className="flex items-center justify-between p-2 bg-[#EDEEEF] rounded-lg">
-                <span className="text-sm text-[#47464F]">✅ Completed Tasks</span>
-                <span className="font-bold text-[#191C1D]">{stats.completedTasks}</span>
-              </div>
-              <div className="flex items-center justify-between p-2 bg-[#EDEEEF] rounded-lg">
-                <span className="text-sm text-[#47464F]">📅 Current Semester</span>
-                <span className="font-bold text-[#191C1D] text-xs">{currentSemester?.shortName || 'Sem 1'}</span>
+              <div className="flex justify-between p-2 bg-[#EDEEEF] rounded-lg">
+                <span className="text-sm">✅ Completed</span>
+                <span className="font-bold">{stats.completedTasks}</span>
               </div>
             </div>
           </div>
 
-          {/* Recent Announcements */}
           <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-6">
-            <h3 className="text-lg font-semibold text-[#191C1D] flex items-center gap-2 mb-4">
+            <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
               <Bell size={20} className="text-[#3B82F6]" />
               Announcements
             </h3>
-            <div className="space-y-3">
-              {recentAnnouncements.map((a) => (
-                <div key={a.id} className="p-3 bg-[#EDEEEF] rounded-xl">
-                  <p className="font-medium text-[#191C1D] text-sm">{a.title}</p>
-                  <p className="text-xs text-[#47464F] mt-1">{a.content.substring(0, 60)}...</p>
-                  <p className="text-xs text-[#47464F] mt-1">{formatDate(a.date)} • {a.author}</p>
-                </div>
-              ))}
-            </div>
+            {recentAnnouncements.map((a) => (
+              <div key={a.id} className="p-3 bg-[#EDEEEF] rounded-xl mb-2">
+                <p className="font-medium text-sm">{a.title}</p>
+                <p className="text-xs text-[#47464F] mt-1">{a.content.substring(0, 50)}...</p>
+              </div>
+            ))}
           </div>
 
-          {/* Activity Feed */}
           <ActivityFeed activities={recentActivities} />
         </div>
       </div>
@@ -291,5 +242,4 @@ const StudentDashboard = ({ user }) => {
   );
 };
 
-// ✅ THIS IS THE CRITICAL LINE - MUST BE HERE!
 export default StudentDashboard;
