@@ -10,7 +10,6 @@ import CoordinatorDashboard from './components/Dashboard/CoordinatorDashboard';
 import Login from './components/Auth/Login';
 import SignUp from './components/Auth/SignUp';
 import ProfilePage from './components/Profile/ProfilePage';
-import AcademicCalendar from './components/Academic/AcademicCalender';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -59,7 +58,7 @@ function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F8F9FA]">
+      <div className="min-h-screen flex items-center justify-center bg-[#f0f2f5]">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-[#3B82F6] border-t-transparent rounded-full animate-spin mx-auto"></div>
           <p className="mt-4 text-[#47464F]">Loading...</p>
@@ -81,11 +80,11 @@ function App() {
   return (
     <AppProvider>
       <Router>
-        <div className="flex h-screen bg-[#F8F9FA]">
+        <div className="app-container flex h-screen bg-transparent">
           <Sidebar onLogout={handleLogout} userName={userName} userRole={userRole} />
           <div className="flex-1 flex flex-col overflow-hidden">
             <Header user={user} />
-            <main className="flex-1 overflow-y-auto p-6">
+            <main className="flex-1 overflow-y-auto p-4 md:p-6">
               <Routes>
                 <Route path="/" element={<DashboardHome />} />
                 <Route path="/dashboard" element={<DashboardHome />} />
@@ -93,7 +92,6 @@ function App() {
                 <Route path="/lecturer-dashboard" element={<LecturerDashboard user={user} />} />
                 <Route path="/coordinator-dashboard" element={<CoordinatorDashboard user={user} />} />
                 <Route path="/profile" element={<ProfilePage user={user} />} />
-                <Route path="/academic" element={<AcademicCalendar />} />
                 <Route path="*" element={<Navigate to="/" />} />
               </Routes>
             </main>

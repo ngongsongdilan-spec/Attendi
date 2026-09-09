@@ -3,12 +3,11 @@ import { useAppContext } from '../../context/AppContext';
 import { 
   BookOpen, Clock, CheckCircle, Award, Calendar, 
   Users, TrendingUp, FileText, Bell, ChevronRight,
-  GraduationCap, BarChart3, BookMarked
+  GraduationCap, BarChart3, BookMarked, FolderKanban,
+  ListTodo, AlertCircle
 } from 'lucide-react';
 import StatsCard from './StatsCard';
 import ActivityFeed from './ActivityFeed';
-
-// ✅ These imports now work because they're exported from mockData.js
 import { mockTasks, mockAnnouncements, mockProjects, mockGroups } from '../../data/mockData';
 
 const StudentDashboard = ({ user }) => {
@@ -31,12 +30,15 @@ const StudentDashboard = ({ user }) => {
   const [recentAnnouncements, setRecentAnnouncements] = useState([]);
   const [upcomingDeadlines, setUpcomingDeadlines] = useState([]);
   const [studentCourses, setStudentCourses] = useState([]);
+  const [studentTasks, setStudentTasks] = useState([]);
+  const [studentProjects, setStudentProjects] = useState([]);
 
   const studentName = user?.fullName || 'Alex Scholar';
   const studentMatricule = user?.matricule || 'FE24A389';
   const studentLevel = user?.level || '400';
   const studentDepartment = user?.department || 'Computer Engineering';
-  const studentAdmissionYear = user?.admissionYear || '2024/2025';
+  const studentEmail = user?.email || 'No Email';
+  const studentAdmissionYear = user?.admissionYear || 'Not Set';
 
   useEffect(() => {
     const courses = getCoursesForStudent(studentMatricule);
@@ -46,21 +48,23 @@ const StudentDashboard = ({ user }) => {
     const totalCredits = courses.reduce((acc, c) => acc + (c.credits || 3), 0);
     const semStats = getCurrentSemesterStats(studentMatricule);
     
-    const studentTasks = mockTasks.filter(t => t.assignedTo === studentMatricule);
-    const pendingTasks = studentTasks.filter(t => t.status !== 'Completed').length;
-    const completedTasks = studentTasks.filter(t => t.status === 'Completed').length;
+    const tasks = mockTasks.filter(t => t.assignedTo === studentMatricule);
+    const pendingTasks = tasks.filter(t => t.status !== 'Completed').length;
+    const completedTasks = tasks.filter(t => t.status === 'Completed').length;
+    setStudentTasks(tasks);
     
-    const studentProjects = mockProjects.filter(p => {
+    const projects = mockProjects.filter(p => {
       const group = mockGroups.find(g => g.projectId === p.id);
       return group?.members.includes(studentMatricule);
     });
+    setStudentProjects(projects);
     
     setStats({
       totalCourses,
       attendance: semStats?.attendance || 0,
       pendingTasks,
       completedTasks,
-      activeProjects: studentProjects.length,
+      activeProjects: projects.length,
       totalCredits,
     });
 
@@ -75,16 +79,33 @@ const StudentDashboard = ({ user }) => {
   }, [studentMatricule, currentSemester, currentSchoolYear, user]);
 
   const statCards = [
-    { icon: BookOpen, label: 'Courses', value: stats.totalCourses, color: 'secondary' },
-    { icon: Award, label: 'Attendance', value: `${stats.attendance}%`, color: 'success' },
-    { icon: Clock, label: 'Pending Tasks', value: stats.pendingTasks, color: 'warning' },
-    { icon: CheckCircle, label: 'Completed', value: stats.completedTasks, color: 'primary' },
+    { icon: FolderKanban, label: 'Active Projects', value: stats.activeProjects, color: 'secondary' },
+    { icon: ListTodo, label: 'Pending Tasks', value: stats.pendingTasks, color: 'warning' },
+    { icon: CheckCircle, label: 'Completed Tasks', value: stats.completedTasks, color: 'success' },
+    { icon: BookOpen, label: 'Courses', value: stats.totalCourses, color: 'primary' },
   ];
 
   const formatDate = (date) => {
     return new Date(date).toLocaleDateString('en-US', { 
       weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
     });
+  };
+
+  const getStatusColor = (status) => {
+    switch(status) {
+      case 'Completed': return 'bg-green-100 text-green-800';
+      case 'In Progress': return 'bg-yellow-100 text-yellow-800';
+      case 'TODO': return 'bg-gray-100 text-gray-600';
+      default: return 'bg-gray-100 text-gray-600';
+    }
+  };
+
+  const getStatusIcon = (status) => {
+    switch(status) {
+      case 'Completed': return <CheckCircle size={14} className="text-green-600" />;
+      case 'In Progress': return <Clock size={14} className="text-yellow-600" />;
+      default: return <AlertCircle size={14} className="text-gray-400" />;
+    }
   };
 
   const recentActivities = activities?.slice(0, 5).map(a => ({
@@ -103,136 +124,174 @@ const StudentDashboard = ({ user }) => {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="bg-gradient-to-r from-[#1E1B4B] to-[#2A1F6E] rounded-2xl p-6 text-white">
-        <div className="flex items-start justify-between flex-wrap gap-4">
+    <div className="space-y-4 md:space-y-6 max-w-7xl mx-auto">
+      {/* Welcome Header */}
+      <div className="bg-gradient-to-r from-[#1E1B4B] to-[#2A1F6E] rounded-xl md:rounded-2xl p-4 md:p-6 text-white">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
-            <h2 className="text-2xl font-bold">Welcome back, {studentName} 😊</h2>
-            <p className="text-[#8683BA] mt-1 font-mono">{studentMatricule}</p>
-            <p className="text-[#8683BA] text-sm">Level {studentLevel} • {studentDepartment}</p>
+            <h2 className="text-xl md:text-2xl font-bold">Welcome back, {studentName} 🎉</h2>
+            <p className="text-[#8683BA] text-sm mt-1">Here is what's happening with your projects today.</p>
             <p className="text-[#8683BA] text-xs mt-1">
               {currentSemester?.name} {currentSchoolYear?.name}
             </p>
           </div>
-          <div className="flex gap-4">
-            <div className="bg-white/10 rounded-xl p-3 text-center min-w-[80px]">
-              <p className="text-xs text-[#8683BA]">Attendance</p>
-              <p className="text-xl font-bold">{stats.attendance}%</p>
-            </div>
-            <div className="bg-white/10 rounded-xl p-3 text-center min-w-[80px]">
-              <p className="text-xs text-[#8683BA]">Credits</p>
-              <p className="text-xl font-bold">{stats.totalCredits}</p>
-            </div>
+          <div className="bg-white/10 rounded-xl px-4 py-2 text-center min-w-[80px]">
+            <p className="text-xs text-[#8683BA]">Attendance</p>
+            <p className="text-lg font-bold">{stats.attendance}%</p>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Stats Cards - Responsive Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         {statCards.map((stat, index) => (
           <StatsCard key={index} {...stat} />
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-6">
+      {/* Main Content - Responsive */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+        {/* Left Column - My Projects */}
+        <div className="space-y-4 md:space-y-6">
+          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-4 md:p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-[#191C1D] flex items-center gap-2">
-                <BookMarked size={20} className="text-[#3B82F6]" />
-                Enrolled Courses ({currentSemester?.name})
+              <h3 className="text-base md:text-lg font-semibold text-[#191C1D] flex items-center gap-2">
+                <FolderKanban size={18} className="md:size-5 text-[#3B82F6]" />
+                My Projects
               </h3>
-              <span className="text-xs text-[#47464F]">Level {studentLevel}</span>
+              <button className="text-[#3B82F6] text-sm font-medium hover:underline">View All</button>
             </div>
-            <div className="space-y-3">
-              {studentCourses.length > 0 ? (
-                studentCourses.map((course, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 bg-[#EDEEEF] rounded-xl hover:bg-[#E7E8E9]">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-[#3B82F6]/10 flex items-center justify-center">
-                        <BookOpen size={18} className="text-[#3B82F6]" />
+            <div className="space-y-3 md:space-y-4">
+              {studentProjects.length > 0 ? (
+                studentProjects.slice(0, 2).map((project) => {
+                  const group = mockGroups.find(g => g.projectId === project.id);
+                  return (
+                    <div key={project.id} className="border border-[#C8C5D0] rounded-xl p-3 md:p-4 hover:shadow-md transition-shadow">
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                        <div>
+                          <h4 className="font-semibold text-[#191C1D] text-sm md:text-base">{project.title}</h4>
+                          <p className="text-xs md:text-sm text-[#47464F]">{project.department} · {group?.name || 'No Group'}</p>
+                          <p className="text-xs text-[#47464F]">{project.supervisor}</p>
+                        </div>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium self-start ${
+                          project.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {project.status}
+                        </span>
                       </div>
-                      <div>
-                        <p className="font-medium">{course.id}</p>
-                        <p className="text-sm text-[#47464F]">{course.name}</p>
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between text-sm text-[#47464F] mb-1">
+                          <span>Progress</span>
+                          <span className="font-semibold text-[#191C1D]">{project.progress}%</span>
+                        </div>
+                        <div className="w-full h-2 bg-[#EDEEEF] rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] rounded-full"
+                            style={{ width: `${project.progress}%` }}
+                          ></div>
+                        </div>
+                        <p className="text-xs text-[#47464F] mt-1">Deadline: {project.deadline}</p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-xs text-[#47464F]">{course.credits} Credits</p>
-                      <p className="text-xs text-[#47464F]">{course.lecturer}</p>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="text-center py-8">
-                  <BookOpen size={32} className="mx-auto text-[#47464F] opacity-50" />
-                  <p className="text-[#47464F]">No courses enrolled</p>
+                  <FolderKanban size={32} className="mx-auto text-[#47464F] opacity-50" />
+                  <p className="text-[#47464F] mt-2">No projects assigned</p>
                 </div>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-6">
-            <h3 className="text-lg font-semibold text-[#191C1D] flex items-center gap-2">
-              <Clock size={20} className="text-[#F59E0B]" />
-              Upcoming Deadlines
-            </h3>
-            <div className="space-y-3 mt-4">
-              {upcomingDeadlines.length > 0 ? (
-                upcomingDeadlines.map((task) => (
-                  <div key={task.id} className="flex items-center justify-between p-3 bg-[#EDEEEF] rounded-xl">
-                    <div>
-                      <p className="font-medium">{task.title}</p>
-                      <p className="text-xs text-[#47464F]">Due: {formatDate(task.dueDate)}</p>
-                    </div>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      task.priority === 'High' ? 'bg-red-100 text-red-800' :
-                      task.priority === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-blue-100 text-blue-800'
-                    }`}>
-                      {task.priority}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-center py-4 text-[#47464F]">🎉 No upcoming deadlines!</p>
               )}
             </div>
           </div>
         </div>
 
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-6">
-            <h3 className="text-lg font-semibold text-[#191C1D] flex items-center gap-2 mb-4">
-              <BarChart3 size={20} className="text-[#3B82F6]" />
-              Quick Stats
-            </h3>
-            <div className="space-y-2">
-              <div className="flex justify-between p-2 bg-[#EDEEEF] rounded-lg">
-                <span className="text-sm">📚 Courses</span>
-                <span className="font-bold">{stats.totalCourses}</span>
-              </div>
-              <div className="flex justify-between p-2 bg-[#EDEEEF] rounded-lg">
-                <span className="text-sm">📁 Projects</span>
-                <span className="font-bold">{stats.activeProjects}</span>
-              </div>
-              <div className="flex justify-between p-2 bg-[#EDEEEF] rounded-lg">
-                <span className="text-sm">✅ Completed</span>
-                <span className="font-bold">{stats.completedTasks}</span>
-              </div>
+        {/* Right Column - My Tasks & Deadlines */}
+        <div className="space-y-4 md:space-y-6">
+          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-4 md:p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base md:text-lg font-semibold text-[#191C1D] flex items-center gap-2">
+                <ListTodo size={18} className="md:size-5 text-[#3B82F6]" />
+                My Tasks
+              </h3>
+              <button className="text-[#3B82F6] text-sm font-medium hover:underline">View All</button>
+            </div>
+            <div className="space-y-3">
+              {studentTasks.length > 0 ? (
+                studentTasks.slice(0, 3).map((task) => {
+                  const project = mockProjects.find(p => p.id === task.projectId);
+                  return (
+                    <div key={task.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-[#EDEEEF] rounded-xl gap-2">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-[#3B82F6]/10 flex items-center justify-center flex-shrink-0">
+                          {getStatusIcon(task.status)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-[#191C1D] text-sm truncate">{task.title}</p>
+                          <p className="text-xs text-[#47464F] truncate">{project?.title || 'No Project'}</p>
+                        </div>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium self-start sm:self-center ${getStatusColor(task.status)}`}>
+                        {task.status}
+                      </span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-8">
+                  <ListTodo size={32} className="mx-auto text-[#47464F] opacity-50" />
+                  <p className="text-[#47464F] mt-2">No tasks assigned</p>
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-6">
-            <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-              <Bell size={20} className="text-[#3B82F6]" />
+          {/* Upcoming Deadlines */}
+          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-4 md:p-6">
+            <h3 className="text-base md:text-lg font-semibold text-[#191C1D] flex items-center gap-2 mb-4">
+              <Clock size={18} className="md:size-5 text-[#F59E0B]" />
+              Upcoming Deadlines
+            </h3>
+            <div className="space-y-3">
+              {upcomingDeadlines.length > 0 ? (
+                upcomingDeadlines.slice(0, 3).map((task) => {
+                  const project = mockProjects.find(p => p.id === task.projectId);
+                  return (
+                    <div key={task.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-[#EDEEEF] rounded-xl gap-2">
+                      <div>
+                        <p className="font-medium text-[#191C1D] text-sm">{task.title}</p>
+                        <p className="text-xs text-[#47464F]">{project?.title || 'No Project'} • Due: {formatDate(task.dueDate)}</p>
+                      </div>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium self-start sm:self-center ${
+                        task.priority === 'High' ? 'bg-red-100 text-red-800' :
+                        task.priority === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-blue-100 text-blue-800'
+                      }`}>
+                        {task.priority}
+                      </span>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-center text-[#47464F] py-4">🎉 No upcoming deadlines!</p>
+              )}
+            </div>
+          </div>
+
+          {/* Announcements */}
+          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-4 md:p-6">
+            <h3 className="text-base md:text-lg font-semibold text-[#191C1D] flex items-center gap-2 mb-4">
+              <Bell size={18} className="md:size-5 text-[#3B82F6]" />
               Announcements
             </h3>
-            {recentAnnouncements.map((a) => (
-              <div key={a.id} className="p-3 bg-[#EDEEEF] rounded-xl mb-2">
-                <p className="font-medium text-sm">{a.title}</p>
-                <p className="text-xs text-[#47464F] mt-1">{a.content.substring(0, 50)}...</p>
-              </div>
-            ))}
+            <div className="space-y-3">
+              {recentAnnouncements.map((a) => (
+                <div key={a.id} className="p-3 bg-[#EDEEEF] rounded-xl">
+                  <p className="font-medium text-[#191C1D] text-sm">{a.title}</p>
+                  <p className="text-xs text-[#47464F] mt-1">{a.content.substring(0, 60)}...</p>
+                  <p className="text-xs text-[#47464F] mt-1">{formatDate(a.date)} • {a.author}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
           <ActivityFeed activities={recentActivities} />

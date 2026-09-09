@@ -8,42 +8,6 @@ export const mockSchoolYears = [
   { id: 2, name: '2024/2025', startDate: '2024-09-01', endDate: '2025-06-30', isActive: true },
   { id: 3, name: '2025/2026', startDate: '2025-09-01', endDate: '2026-06-30', isActive: false },
 ];
-// ===== ✅ LECTURERS (Add this) =====
-export const mockLecturers = [
-  {
-    id: 1,
-    fullName: 'Dr. Alida Vance',
-    email: 'alida.vance@fet.edu',
-    faculty: 'Engineering',
-    department: 'Computer Engineering',
-    password: 'lecturer123',
-    courses: ['CEF444', 'CEF450', 'CEF462', 'CEF476'],
-    phone: '+237 6XX XXX XXX',
-    title: 'Senior Lecturer',
-  },
-  {
-    id: 2,
-    fullName: 'Dr. Sarah Chen',
-    email: 'sarah.chen@fet.edu',
-    faculty: 'Engineering',
-    department: 'Software Engineering',
-    password: 'lecturer123',
-    courses: ['SE401', 'SE402', 'SE403', 'SE404'],
-    phone: '+237 6XX XXX XXX',
-    title: 'Associate Professor',
-  },
-  {
-    id: 3,
-    fullName: 'Dr. Robert Johnson',
-    email: 'robert.johnson@fet.edu',
-    faculty: 'Engineering',
-    department: 'Mechanical Engineering',
-    password: 'lecturer123',
-    courses: ['ME301', 'ME302'],
-    phone: '+237 6XX XXX XXX',
-    title: 'Senior Lecturer',
-  },
-];
 
 // ===== SEMESTERS =====
 export const mockSemesters = [
@@ -100,23 +64,94 @@ export const mockStudents = [
     phone: '+237 6XX XXX XXX',
     address: 'Yaoundé, Cameroon',
   },
+  {
+    id: 4,
+    matricule: 'FE25D012',
+    fullName: 'Sarah Connor',
+    email: 'sarah.connor@fet.edu',
+    faculty: 'Engineering',
+    department: 'Civil Engineering',
+    level: '200',
+    admissionYear: '2025/2026',
+    currentSemester: 'First Semester',
+    password: 'student123',
+    enrolledCourses: ['CIV201', 'CIV202', 'CIV203'],
+    phone: '+237 6XX XXX XXX',
+    address: 'Bamenda, Cameroon',
+  },
+  {
+    id: 5,
+    matricule: 'FE24E345',
+    fullName: 'Michael Chang',
+    email: 'michael.chang@fet.edu',
+    faculty: 'Engineering',
+    department: 'Electrical Engineering',
+    level: '400',
+    admissionYear: '2024/2025',
+    currentSemester: 'First Semester',
+    password: 'student123',
+    enrolledCourses: ['EEF460', 'EEF462', 'EEF464'],
+    phone: '+237 6XX XXX XXX',
+    address: 'Kumba, Cameroon',
+  },
+];
+
+// ===== LECTURERS =====
+export const mockLecturers = [
+  {
+    id: 1,
+    fullName: 'Dr. Alida Vance',
+    email: 'alida.vance@fet.edu',
+    faculty: 'Engineering',
+    department: 'Computer Engineering',
+    password: 'lecturer123',
+    courses: [
+      { id: 'CEF444', name: 'AI and Machine Learning', credits: 3, level: 400, semester: 'First Semester' },
+      { id: 'CEF450', name: 'Cloud Computing', credits: 3, level: 400, semester: 'First Semester' },
+      { id: 'CEF462', name: 'Digital Image Processing', credits: 3, level: 400, semester: 'First Semester' },
+      { id: 'CEF476', name: 'Software Engineering and Design', credits: 3, level: 400, semester: 'First Semester' },
+      { id: 'CS301', name: 'Data Structures', credits: 3, level: 300, semester: 'First Semester' },
+    ],
+    phone: '+237 6XX XXX XXX',
+    title: 'Senior Lecturer',
+  },
+  {
+    id: 2,
+    fullName: 'Dr. Sarah Chen',
+    email: 'sarah.chen@fet.edu',
+    faculty: 'Engineering',
+    department: 'Software Engineering',
+    password: 'lecturer123',
+    courses: [
+      { id: 'SE401', name: 'Advanced Software Engineering', credits: 3, level: 400, semester: 'First Semester' },
+      { id: 'SE402', name: 'Agile Development', credits: 3, level: 400, semester: 'First Semester' },
+      { id: 'SE403', name: 'Project Management', credits: 3, level: 400, semester: 'First Semester' },
+      { id: 'SE404', name: 'Software Testing', credits: 3, level: 400, semester: 'First Semester' },
+    ],
+    phone: '+237 6XX XXX XXX',
+    title: 'Associate Professor',
+  },
+  {
+    id: 3,
+    fullName: 'Dr. Robert Johnson',
+    email: 'robert.johnson@fet.edu',
+    faculty: 'Engineering',
+    department: 'Mechanical Engineering',
+    password: 'lecturer123',
+    courses: [
+      { id: 'ME301', name: 'Thermodynamics II', credits: 3, level: 300, semester: 'First Semester' },
+      { id: 'ME302', name: 'Fluid Mechanics II', credits: 3, level: 300, semester: 'First Semester' },
+      { id: 'ME303', name: 'Machine Design', credits: 3, level: 300, semester: 'First Semester' },
+    ],
+    phone: '+237 6XX XXX XXX',
+    title: 'Senior Lecturer',
+  },
 ];
 
 // ===== COURSES =====
 export const mockCourses = [
-  // Level 100
-  { id: 'CEF101', name: 'Introduction to Engineering', lecturer: 'Dr. Alida Vance', credits: 3, level: 100, semester: 'First Semester', schoolYear: '2024/2025' },
-  { id: 'CEF102', name: 'Mathematics I', lecturer: 'Dr. John Doe', credits: 4, level: 100, semester: 'First Semester', schoolYear: '2024/2025' },
-  // Level 200
-  { id: 'CIV201', name: 'Materials Science & Technology', lecturer: 'Dr. Michael Brown', credits: 3, level: 200, semester: 'First Semester', schoolYear: '2024/2025' },
-  { id: 'CIV202', name: 'Fluid Mechanics I', lecturer: 'Dr. Michael Brown', credits: 3, level: 200, semester: 'First Semester', schoolYear: '2024/2025' },
-  // Level 300
-  { id: 'ME301', name: 'Thermodynamics II', lecturer: 'Dr. Robert Johnson', credits: 3, level: 300, semester: 'First Semester', schoolYear: '2024/2025' },
-  { id: 'ME302', name: 'Fluid Mechanics II', lecturer: 'Dr. Robert Johnson', credits: 3, level: 300, semester: 'First Semester', schoolYear: '2024/2025' },
-  { id: 'ME303', name: 'Machine Design', lecturer: 'Dr. Robert Johnson', credits: 3, level: 300, semester: 'First Semester', schoolYear: '2024/2025' },
-  { id: 'CS301', name: 'Data Structures', lecturer: 'Dr. Alida Vance', credits: 3, level: 300, semester: 'First Semester', schoolYear: '2024/2025' },
-  // Level 400
-  { id: 'CEF444', name: 'Artificial Intelligence and Machine Learning', lecturer: 'Dr. Alida Vance', credits: 3, level: 400, semester: 'First Semester', schoolYear: '2024/2025' },
+  // Level 400 - First Semester
+  { id: 'CEF444', name: 'AI and Machine Learning', lecturer: 'Dr. Alida Vance', credits: 3, level: 400, semester: 'First Semester', schoolYear: '2024/2025' },
   { id: 'CEF450', name: 'Cloud Computing', lecturer: 'Dr. Alida Vance', credits: 3, level: 400, semester: 'First Semester', schoolYear: '2024/2025' },
   { id: 'CEF462', name: 'Digital Image Processing', lecturer: 'Dr. Alida Vance', credits: 3, level: 400, semester: 'First Semester', schoolYear: '2024/2025' },
   { id: 'CEF476', name: 'Software Engineering and Design', lecturer: 'Dr. Alida Vance', credits: 3, level: 400, semester: 'First Semester', schoolYear: '2024/2025' },
@@ -124,9 +159,21 @@ export const mockCourses = [
   { id: 'SE402', name: 'Agile Development', lecturer: 'Dr. Sarah Chen', credits: 3, level: 400, semester: 'First Semester', schoolYear: '2024/2025' },
   { id: 'SE403', name: 'Project Management', lecturer: 'Dr. Sarah Chen', credits: 3, level: 400, semester: 'First Semester', schoolYear: '2024/2025' },
   { id: 'SE404', name: 'Software Testing', lecturer: 'Dr. Sarah Chen', credits: 3, level: 400, semester: 'First Semester', schoolYear: '2024/2025' },
+  { id: 'EEF460', name: 'Feedback Systems Laboratory', lecturer: 'Dr. David Wilson', credits: 3, level: 400, semester: 'First Semester', schoolYear: '2024/2025' },
+  { id: 'EEF462', name: 'Digital Signal Processing', lecturer: 'Dr. David Wilson', credits: 3, level: 400, semester: 'First Semester', schoolYear: '2024/2025' },
+  { id: 'EEF464', name: 'Wireless Communications', lecturer: 'Dr. David Wilson', credits: 3, level: 400, semester: 'First Semester', schoolYear: '2024/2025' },
+  // Level 300 - First Semester
+  { id: 'CS301', name: 'Data Structures', lecturer: 'Dr. Alida Vance', credits: 3, level: 300, semester: 'First Semester', schoolYear: '2024/2025' },
+  { id: 'ME301', name: 'Thermodynamics II', lecturer: 'Dr. Robert Johnson', credits: 3, level: 300, semester: 'First Semester', schoolYear: '2024/2025' },
+  { id: 'ME302', name: 'Fluid Mechanics II', lecturer: 'Dr. Robert Johnson', credits: 3, level: 300, semester: 'First Semester', schoolYear: '2024/2025' },
+  { id: 'ME303', name: 'Machine Design', lecturer: 'Dr. Robert Johnson', credits: 3, level: 300, semester: 'First Semester', schoolYear: '2024/2025' },
+  // Level 200 - First Semester
+  { id: 'CIV201', name: 'Materials Science & Technology', lecturer: 'Dr. Michael Brown', credits: 3, level: 200, semester: 'First Semester', schoolYear: '2024/2025' },
+  { id: 'CIV202', name: 'Fluid Mechanics I', lecturer: 'Dr. Michael Brown', credits: 3, level: 200, semester: 'First Semester', schoolYear: '2024/2025' },
+  { id: 'CIV203', name: 'Chemistry for Engineers', lecturer: 'Dr. Emily Davis', credits: 3, level: 200, semester: 'First Semester', schoolYear: '2024/2025' },
 ];
 
-// ===== ✅ ANNOUNCEMENTS =====
+// ===== ANNOUNCEMENTS =====
 export const mockAnnouncements = [
   {
     id: 1,
@@ -157,7 +204,7 @@ export const mockAnnouncements = [
   },
 ];
 
-// ===== ✅ PROJECTS =====
+// ===== PROJECTS =====
 export const mockProjects = [
   {
     id: 1,
@@ -183,13 +230,13 @@ export const mockProjects = [
   },
 ];
 
-// ===== ✅ GROUPS =====
+// ===== GROUPS =====
 export const mockGroups = [
   { id: 1, name: 'Group Alpha', projectId: 1, members: ['FE24A389', 'FE24B456'] },
   { id: 2, name: 'Group Beta', projectId: 2, members: ['FE24A389'] },
 ];
 
-// ===== ✅ TASKS =====
+// ===== TASKS =====
 export const mockTasks = [
   { id: 1, title: 'API Documentation', projectId: 1, assignedTo: 'FE24A389', status: 'In Progress', priority: 'High', dueDate: '2024-10-25' },
   { id: 2, title: 'Frontend Development', projectId: 1, assignedTo: 'FE24B456', status: 'TODO', priority: 'Medium', dueDate: '2024-10-30' },
@@ -213,30 +260,6 @@ export const getCurrentSchoolYear = () => {
 
 export const getCurrentSemester = () => {
   return mockSemesters.find(s => s.isCurrent === true) || mockSemesters[0];
-};
-
-export const getCoursesByLevelAndSemester = (level, semester, schoolYear) => {
-  return mockCourses.filter(c => 
-    c.level === parseInt(level) && 
-    c.semester === semester && 
-    c.schoolYear === schoolYear
-  );
-};
-
-export const getEnrolledCourses = (matricule) => {
-  const student = mockStudents.find(s => s.matricule === matricule);
-  if (!student) return [];
-  return mockCourses.filter(c => student.enrolledCourses.includes(c.id));
-};
-
-export const getEnrolledCoursesForSemester = (matricule, semester, schoolYear) => {
-  const student = mockStudents.find(s => s.matricule === matricule);
-  if (!student) return [];
-  return mockCourses.filter(c => 
-    student.enrolledCourses.includes(c.id) &&
-    c.semester === semester &&
-    c.schoolYear === schoolYear
-  );
 };
 
 export const getStudentAttendance = (matricule) => {

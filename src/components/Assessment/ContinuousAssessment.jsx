@@ -1,319 +1,317 @@
-import React, { useState } from 'react';
-import { useAppContext } from '../../context/AppContext';
-import { Save, FileText, Target, Code, Users, Plus, X } from 'lucide-react';
-import RubricItem from './RubricItem';
+import React, { useState, useEffect } from 'react';
+import { 
+  Save, FileText, Users, Target, Code, Award, 
+  Presentation, Search, ChevronRight, X, CheckCircle
+} from 'lucide-react';
+import { mockStudents, mockProjects, mockGroups } from '../../data/mockData';
 
-const ContinuousAssessment = () => {
-  const { assessments, addAssessment, updateAssessment, students, projects } = useAppContext();
-  const [selectedAssessment, setSelectedAssessment] = useState(null);
-  const [feedback, setFeedback] = useState('');
-  const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({
-    student: '',
-    project: '',
-    group: '',
-    rubric: [
-      { label: 'Proposal Document', weight: 10, maxMarks: 10, score: 0 },
-      { label: 'Research & Analysis', weight: 15, maxMarks: 15, score: 0 },
-      { label: 'Implementation & Code Quality', weight: 25, maxMarks: 25, score: 0 },
-      { label: 'Individual Contribution', weight: 20, maxMarks: 20, score: 0 },
-    ],
-    feedback: '',
-    status: 'Draft'
+const ContinuousAssessment = ({ user }) => {
+  const [students, setStudents] = useState([]);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [assessments, setAssessments] = useState({});
+  const [scores, setScores] = useState({
+    proposal: 0,
+    research: 0,
+    implementation: 0,
+    contribution: 0,
+    presentation: 0,
   });
+  const [feedback, setFeedback] = useState('');
+  const [success, setSuccess] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
 
-  const handleAddAssessment = () => {
-    const totalScore = formData.rubric.reduce((acc, item) => acc + item.score, 0);
-    const totalMax = formData.rubric.reduce((acc, item) => acc + item.maxMarks, 0);
-    const subtotal = ((totalScore / totalMax) * 100).toFixed(1);
+  const lecturerName = user?.fullName || 'Lecturer';
+  const lecturerDepartment = user?.department || 'Engineering';
 
-    const newAssessment = {
-      ...formData,
-      subtotal: parseFloat(subtotal),
-      createdAt: new Date().toISOString().split('T')[0]
+  const assessmentStudents = [
+    { id: 'CS24-001', name: 'Alida Wirsiy', department: 'Computer Engineering', level: '400', group: 'Group A' },
+    { id: 'CS24-018', name: 'James Miller', department: 'Software Engineering', level: '400', group: 'Group B' },
+    { id: 'CS24-099', name: 'Sarah Connor', department: 'Computer Engineering', level: '400', group: 'Group A' },
+    { id: 'CS24-112', name: 'Michael Chang', department: 'Electrical Engineering', level: '400', group: 'Group C' },
+    { id: 'CS24-055', name: 'Olivia Davis', department: 'Civil Engineering', level: '400', group: 'Group B' },
+  ];
+
+  useEffect(() => {
+    setStudents(assessmentStudents);
+    const saved = localStorage.getItem('fet_assessments');
+    if (saved) {
+      try {
+        setAssessments(JSON.parse(saved));
+      } catch {
+        setAssessments({});
+      }
+    }
+  }, []);
+
+  const filteredStudents = students.filter(s =>
+    s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    s.id.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const handleSelectStudent = (student) => {
+    setSelectedStudent(student);
+    setIsEditing(true);
+    const existing = assessments[student.id];
+    if (existing) {
+      setScores({
+        proposal: existing.scores?.proposal || 0,
+        research: existing.scores?.research || 0,
+        implementation: existing.scores?.implementation || 0,
+        contribution: existing.scores?.contribution || 0,
+        presentation: existing.scores?.presentation || 0,
+      });
+      setFeedback(existing.feedback || '');
+    } else {
+      setScores({ proposal: 0, research: 0, implementation: 0, contribution: 0, presentation: 0 });
+      setFeedback('');
+    }
+    setSuccess('');
+  };
+
+  const handleScoreChange = (category, value) => {
+    const numValue = Math.min(20, Math.max(0, parseInt(value) || 0));
+    setScores(prev => ({ ...prev, [category]: numValue }));
+  };
+
+  const calculateTotal = () => {
+    return Object.values(scores).reduce((sum, val) => sum + val, 0);
+  };
+
+  const handleSave = () => {
+    if (!selectedStudent) return;
+
+    const total = calculateTotal();
+    const assessmentData = {
+      studentId: selectedStudent.id,
+      studentName: selectedStudent.name,
+      department: selectedStudent.department,
+      level: selectedStudent.level,
+      group: selectedStudent.group,
+      scores: scores,
+      total: total,
+      feedback: feedback,
+      assessedBy: lecturerName,
+      date: new Date().toISOString().split('T')[0],
+      status: 'Published',
     };
-    addAssessment(newAssessment);
-    setShowForm(false);
-    resetForm();
+
+    const updated = { ...assessments, [selectedStudent.id]: assessmentData };
+    setAssessments(updated);
+    localStorage.setItem('fet_assessments', JSON.stringify(updated));
+    
+    setSuccess(`✅ Assessment saved for ${selectedStudent.name}`);
+    setIsEditing(false);
+    setTimeout(() => setSuccess(''), 3000);
   };
 
-  const resetForm = () => {
-    setFormData({
-      student: '',
-      project: '',
-      group: '',
-      rubric: [
-        { label: 'Proposal Document', weight: 10, maxMarks: 10, score: 0 },
-        { label: 'Research & Analysis', weight: 15, maxMarks: 15, score: 0 },
-        { label: 'Implementation & Code Quality', weight: 25, maxMarks: 25, score: 0 },
-        { label: 'Individual Contribution', weight: 20, maxMarks: 20, score: 0 },
-      ],
-      feedback: '',
-      status: 'Draft'
-    });
-    setFeedback('');
+  const getStudentAssessment = (studentId) => {
+    return assessments[studentId];
   };
 
-  const handleRubricChange = (index, field, value) => {
-    const newRubric = [...formData.rubric];
-    newRubric[index][field] = parseFloat(value) || 0;
-    setFormData(prev => ({ ...prev, rubric: newRubric }));
+  const getAssessmentStatus = (studentId) => {
+    const data = assessments[studentId];
+    if (!data) return 'Not Assessed';
+    return data.status || 'Draft';
   };
 
-  const handleSaveFeedback = (id) => {
-    updateAssessment(id, { feedback, status: 'Submitted' });
-    setFeedback('');
+  const getStatusColor = (status) => {
+    switch(status) {
+      case 'Published': return 'bg-green-100 text-green-800';
+      case 'Draft': return 'bg-yellow-100 text-yellow-800';
+      default: return 'bg-gray-100 text-gray-600';
+    }
   };
 
-  const totalScore = formData.rubric.reduce((acc, item) => acc + item.score, 0);
-  const totalMax = formData.rubric.reduce((acc, item) => acc + item.maxMarks, 0);
-  const subtotal = ((totalScore / totalMax) * 100).toFixed(1);
+  const assessmentCategories = [
+    { key: 'proposal', label: 'Proposal', icon: FileText, max: 20 },
+    { key: 'research', label: 'Research', icon: Target, max: 20 },
+    { key: 'implementation', label: 'Implementation', icon: Code, max: 20 },
+    { key: 'contribution', label: 'Contribution', icon: Users, max: 20 },
+    { key: 'presentation', label: 'Presentation', icon: Presentation, max: 20 },
+  ];
+
+  const total = calculateTotal();
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-[#191C1D]">Continuous Assessment</h2>
-          <p className="text-[#47464F]">Evaluate student progress and project contributions.</p>
+      <div className="bg-gradient-to-r from-[#1E1B4B] to-[#2A1F6E] rounded-2xl p-6 text-white">
+        <div className="flex items-start justify-between flex-wrap gap-4">
+          <div>
+            <h2 className="text-2xl font-bold">Continuous Assessment</h2>
+            <p className="text-[#8683BA] mt-1">Assess students across the entire project journey</p>
+            <p className="text-[#8683BA] text-sm mt-1">👨‍🏫 {lecturerName} • {lecturerDepartment}</p>
+          </div>
+          <div className="bg-white/10 rounded-xl px-4 py-2 text-center">
+            <p className="text-xs text-[#8683BA]">Students</p>
+            <p className="text-xl font-bold">{students.length}</p>
+          </div>
         </div>
-        <button 
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-[#3B82F6] text-white rounded-lg font-medium hover:bg-[#3B82F6]/90 transition-colors"
-        >
-          <Plus size={18} />
-          New Assessment
-        </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {assessments.map((assessment) => {
-          const total = assessment.rubric.reduce((acc, r) => acc + r.score, 0);
-          const max = assessment.rubric.reduce((acc, r) => acc + r.maxMarks, 0);
-          const percentage = ((total / max) * 100).toFixed(1);
-          
-          return (
-            <div key={assessment.id} className="bg-white rounded-lg shadow-sm border border-[#C8C5D0] p-6 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-[#191C1D]">{assessment.student}</h3>
-                  <p className="text-sm text-[#47464F]">{assessment.project} • {assessment.group}</p>
-                </div>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  assessment.status === 'Submitted' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                }`}>
-                  {assessment.status || 'Draft'}
-                </span>
-              </div>
-              <div className="mt-3">
-                <div className="flex items-center justify-between text-sm text-[#47464F] mb-1">
-                  <span>Score</span>
-                  <span className="font-semibold text-[#191C1D]">{percentage}%</span>
-                </div>
-                <div className="w-full h-2 bg-[#EDEEEF] rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] rounded-full"
-                    style={{ width: `${percentage}%` }}
-                  ></div>
-                </div>
-              </div>
-              <div className="mt-4 pt-4 border-t border-[#C8C5D0] flex gap-2">
-                <button 
-                  onClick={() => {
-                    setSelectedAssessment(assessment);
-                    setFeedback(assessment.feedback || '');
-                  }}
-                  className="flex-1 px-3 py-1.5 bg-[#3B82F6]/10 text-[#3B82F6] rounded-lg text-sm font-medium hover:bg-[#3B82F6]/20 transition-colors"
-                >
-                  View Details
-                </button>
-                {assessment.status !== 'Submitted' && (
-                  <button 
-                    onClick={() => handleSaveFeedback(assessment.id)}
-                    className="flex-1 px-3 py-1.5 bg-green-500/10 text-green-600 rounded-lg text-sm font-medium hover:bg-green-500/20 transition-colors"
-                  >
-                    Submit
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {assessments.length === 0 && (
-        <div className="text-center py-12 bg-white rounded-lg border border-[#C8C5D0]">
-          <FileText size={48} className="mx-auto text-[#47464F] opacity-50" />
-          <p className="text-[#47464F] mt-4">No assessments yet. Create your first assessment!</p>
+      {success && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
+          <CheckCircle size={18} /> {success}
         </div>
       )}
 
-      {/* View Assessment Modal */}
-      {selectedAssessment && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-6 border-b border-[#C8C5D0]">
-              <h3 className="text-xl font-bold text-[#191C1D]">Assessment Details</h3>
-              <button 
-                onClick={() => setSelectedAssessment(null)} 
-                className="p-1 hover:bg-[#EDEEEF] rounded-lg transition-colors"
-              >
-                <X size={24} className="text-[#47464F]" />
-              </button>
-            </div>
-            <div className="p-6">
-              <div className="mb-4">
-                <p className="font-semibold text-[#191C1D]">{selectedAssessment.student}</p>
-                <p className="text-sm text-[#47464F]">{selectedAssessment.project} • {selectedAssessment.group}</p>
-              </div>
-              <div className="space-y-3">
-                {selectedAssessment.rubric.map((item, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 bg-[#EDEEEF] rounded-lg">
-                    <div>
-                      <p className="font-medium text-[#191C1D]">{item.label}</p>
-                      <p className="text-xs text-[#47464F]">Weight: {item.weight}% | Max: {item.maxMarks}</p>
+      <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-sm border border-[#C8C5D0] p-6">
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#47464F]" size={18} />
+            <input
+              type="text"
+              placeholder="Search students by name or ID..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-[#C8C5D0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#3B82F6] text-[#191C1D]"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button className="px-4 py-2 bg-[#EDEEEF] rounded-xl text-sm font-medium hover:bg-[#E7E8E9] transition-colors">
+              All ({students.length})
+            </button>
+            <button className="px-4 py-2 bg-green-100 text-green-800 rounded-xl text-sm font-medium">
+              Assessed ({Object.keys(assessments).length})
+            </button>
+            <button className="px-4 py-2 bg-yellow-100 text-yellow-800 rounded-xl text-sm font-medium">
+              Pending ({students.length - Object.keys(assessments).length})
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-1">
+          <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-sm border border-[#C8C5D0] p-4">
+            <h3 className="text-sm font-semibold text-[#47464F] uppercase tracking-wider mb-3">Students</h3>
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {filteredStudents.map((student) => {
+                const status = getStudentAssessment(student.id);
+                const hasAssessment = !!status;
+                return (
+                  <button
+                    key={student.id}
+                    onClick={() => handleSelectStudent(student)}
+                    className={`w-full text-left p-3 rounded-xl transition-colors ${
+                      selectedStudent?.id === student.id
+                        ? 'bg-[#3B82F6]/10 border-2 border-[#3B82F6]'
+                        : 'bg-[#EDEEEF] hover:bg-[#E7E8E9]'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="font-medium text-[#191C1D]">{student.name}</p>
+                        <p className="text-xs text-[#47464F]">{student.id} • {student.group}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(getAssessmentStatus(student.id))}`}>
+                          {getAssessmentStatus(student.id)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-[#191C1D]">{item.score}</p>
-                      <p className="text-xs text-[#47464F]">/ {item.maxMarks}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 p-4 bg-[#EDEEEF] rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-[#47464F]">Total Score</p>
-                    <p className="text-2xl font-bold text-[#191C1D]">
-                      {selectedAssessment.subtotal || ((selectedAssessment.rubric.reduce((acc, r) => acc + r.score, 0) / 
-                        selectedAssessment.rubric.reduce((acc, r) => acc + r.maxMarks, 0)) * 100).toFixed(1)}%
-                    </p>
-                  </div>
-                  <p className="text-sm text-[#47464F]">Status: {selectedAssessment.status || 'Draft'}</p>
-                </div>
-              </div>
-              {selectedAssessment.feedback && (
-                <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                  <p className="text-sm font-medium text-[#191C1D]">Feedback:</p>
-                  <p className="text-sm text-[#47464F]">{selectedAssessment.feedback}</p>
-                </div>
+                    {hasAssessment && (
+                      <div className="mt-1">
+                        <div className="w-full h-1.5 bg-[#EDEEEF] rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] rounded-full"
+                            style={{ width: `${(assessments[student.id]?.total || 0)}%` }}
+                          ></div>
+                        </div>
+                        <p className="text-xs text-[#47464F] mt-0.5">
+                          Score: {assessments[student.id]?.total || 0}/100
+                        </p>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+              {filteredStudents.length === 0 && (
+                <p className="text-center text-[#47464F] py-4">No students found</p>
               )}
             </div>
           </div>
         </div>
-      )}
 
-      {/* Create Assessment Modal */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-6 border-b border-[#C8C5D0]">
-              <h3 className="text-xl font-bold text-[#191C1D]">New Assessment</h3>
-              <button 
-                onClick={() => setShowForm(false)} 
-                className="p-1 hover:bg-[#EDEEEF] rounded-lg transition-colors"
-              >
-                <X size={24} className="text-[#47464F]" />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-[#191C1D] mb-1">Student</label>
-                  <select
-                    value={formData.student}
-                    onChange={(e) => setFormData(prev => ({ ...prev, student: e.target.value }))}
-                    className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6] bg-white"
-                  >
-                    <option value="">Select Student</option>
-                    {students.map(s => (
-                      <option key={s.id} value={s.name}>{s.name} ({s.id})</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-[#191C1D] mb-1">Project</label>
-                  <select
-                    value={formData.project}
-                    onChange={(e) => setFormData(prev => ({ ...prev, project: e.target.value }))}
-                    className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6] bg-white"
-                  >
-                    <option value="">Select Project</option>
-                    {projects.map(p => (
-                      <option key={p.id} value={p.title}>{p.title}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[#191C1D] mb-1">Group</label>
-                <input
-                  type="text"
-                  value={formData.group}
-                  onChange={(e) => setFormData(prev => ({ ...prev, group: e.target.value }))}
-                  className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6]"
-                />
-              </div>
-
-              <h4 className="font-semibold text-[#191C1D] mt-4">Rubric Items</h4>
-              {formData.rubric.map((item, index) => (
-                <div key={index} className="flex items-center gap-4 p-3 bg-[#EDEEEF] rounded-lg">
-                  <div className="flex-1">
-                    <p className="font-medium text-[#191C1D] text-sm">{item.label}</p>
-                    <p className="text-xs text-[#47464F]">Weight: {item.weight}% | Max: {item.maxMarks}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm text-[#47464F]">Score:</label>
-                    <input
-                      type="number"
-                      value={item.score}
-                      onChange={(e) => handleRubricChange(index, 'score', e.target.value)}
-                      min="0"
-                      max={item.maxMarks}
-                      className="w-20 px-2 py-1 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6] text-center"
-                    />
-                  </div>
-                </div>
-              ))}
-
-              <div className="p-4 bg-[#EDEEEF] rounded-lg">
-                <div className="flex items-center justify-between">
+        <div className="lg:col-span-2">
+          <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-sm border border-[#C8C5D0] p-6">
+            {selectedStudent ? (
+              <>
+                <div className="flex items-center justify-between mb-6 pb-4 border-b border-[#C8C5D0]">
                   <div>
-                    <p className="text-sm text-[#47464F]">Current Subtotal</p>
-                    <p className="text-2xl font-bold text-[#191C1D]">{subtotal}%</p>
+                    <h3 className="text-xl font-bold text-[#191C1D]">{selectedStudent.name}</h3>
+                    <p className="text-sm text-[#47464F]">
+                      {selectedStudent.id} • Level {selectedStudent.level} • {selectedStudent.department}
+                    </p>
+                    <p className="text-sm text-[#47464F]">Group: {selectedStudent.group}</p>
                   </div>
-                  <p className="text-sm text-[#47464F]">(Scaled to 100% later)</p>
+                  <div className="text-right">
+                    <p className="text-sm text-[#47464F]">Total Score</p>
+                    <p className="text-3xl font-bold text-[#191C1D]">{total}<span className="text-lg text-[#47464F]">/100</span></p>
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-sm font-medium text-[#191C1D] mb-1">Feedback</label>
-                <textarea
-                  value={formData.feedback}
-                  onChange={(e) => setFormData(prev => ({ ...prev, feedback: e.target.value }))}
-                  placeholder="Enter feedback..."
-                  className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6] resize-none"
-                  rows={3}
-                />
-              </div>
+                <div className="space-y-4">
+                  {assessmentCategories.map((cat) => {
+                    const Icon = cat.icon;
+                    return (
+                      <div key={cat.key} className="flex items-center gap-4 p-4 bg-[#EDEEEF] rounded-xl">
+                        <div className="p-2 bg-[#3B82F6]/10 rounded-lg">
+                          <Icon size={20} className="text-[#3B82F6]" />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-sm font-medium text-[#191C1D]">
+                            {cat.label} (0-{cat.max})
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            max={cat.max}
+                            value={scores[cat.key]}
+                            onChange={(e) => handleScoreChange(cat.key, e.target.value)}
+                            className="mt-1 w-24 px-3 py-1 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6] text-[#191C1D]"
+                          />
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-semibold text-[#191C1D]">{scores[cat.key]}</p>
+                          <p className="text-xs text-[#47464F]">/ {cat.max}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-[#C8C5D0]">
-                <button
-                  onClick={() => setShowForm(false)}
-                  className="px-4 py-2 border border-[#C8C5D0] rounded-lg text-[#47464F] hover:bg-[#EDEEEF] transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAddAssessment}
-                  className="px-4 py-2 bg-[#3B82F6] text-white rounded-lg font-medium hover:bg-[#3B82F6]/90 transition-colors"
-                >
-                  Save Assessment
-                </button>
+                <div className="mt-6">
+                  <label className="block text-sm font-medium text-[#191C1D] mb-2">Feedback</label>
+                  <textarea
+                    value={feedback}
+                    onChange={(e) => setFeedback(e.target.value)}
+                    placeholder="Enter feedback for the student..."
+                    className="w-full px-4 py-3 border border-[#C8C5D0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#3B82F6] text-[#191C1D] resize-none"
+                    rows={3}
+                  />
+                </div>
+
+                <div className="mt-6 pt-4 border-t border-[#C8C5D0] flex justify-end">
+                  <button
+                    onClick={handleSave}
+                    className="flex items-center gap-2 px-6 py-3 bg-[#1E1B4B] text-white rounded-xl font-semibold hover:bg-[#2A1F6E] transition-colors"
+                  >
+                    <Save size={18} />
+                    Save Assessment
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-12">
+                <FileText size={48} className="mx-auto text-[#47464F] opacity-50" />
+                <p className="text-[#47464F] mt-4">Select a student to assess</p>
+                <p className="text-sm text-[#47464F]">Click on a student from the list to start</p>
               </div>
-            </div>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };

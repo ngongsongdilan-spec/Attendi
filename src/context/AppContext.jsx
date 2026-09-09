@@ -7,11 +7,6 @@ import {
   mockAttendance,
   getCurrentSchoolYear,
   getCurrentSemester,
-  getCoursesByLevelAndSemester,
-  getEnrolledCourses,
-  getEnrolledCoursesForSemester,
-  getStudentAttendance,
-  getStudentAttendancePercentage
 } from '../data/mockData';
 
 const AppContext = createContext();
@@ -137,36 +132,12 @@ export const AppProvider = ({ children }) => {
   const getCoursesForStudent = (matricule) => {
     const student = students.find(s => s.matricule === matricule);
     if (!student) return [];
-    
-    // Get enrolled courses for current semester
     return courses.filter(c => 
       student.enrolledCourses.includes(c.id) &&
       c.level === parseInt(student.level) &&
       c.semester === currentSemester?.name &&
       c.schoolYear === currentSchoolYear?.name
     );
-  };
-
-  const getAllCoursesForLevel = (level) => {
-    return courses.filter(c => c.level === parseInt(level));
-  };
-
-  const getAvailableCoursesForEnrollment = (studentMatricule) => {
-    const student = students.find(s => s.matricule === studentMatricule);
-    if (!student) return [];
-    
-    return courses.filter(c => 
-      c.level === parseInt(student.level) &&
-      c.semester === currentSemester?.name &&
-      c.schoolYear === currentSchoolYear?.name &&
-      !student.enrolledCourses.includes(c.id)
-    );
-  };
-
-  const getEnrolledCourses = (matricule) => {
-    const student = students.find(s => s.matricule === matricule);
-    if (!student) return [];
-    return courses.filter(c => student.enrolledCourses.includes(c.id));
   };
 
   const getCurrentSemesterStats = (studentMatricule) => {
@@ -209,9 +180,6 @@ export const AppProvider = ({ children }) => {
     deleteSemester,
     switchSemester,
     getCoursesForStudent,
-    getAllCoursesForLevel,
-    getAvailableCoursesForEnrollment,
-    getEnrolledCourses,
     getCurrentSemesterStats,
     addActivity,
   };

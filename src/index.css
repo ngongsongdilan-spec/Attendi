@@ -13,9 +13,10 @@
 
   body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    background-color: #F8F9FA;
+    background-color: #f0f2f5;
     color: #191C1D;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   ::-webkit-scrollbar {
@@ -32,13 +33,106 @@
     background: #787680;
     border-radius: 9999px;
   }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #5a5865;
+  }
 }
 
-@layer utilities {
-  .line-clamp-2 {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+/* ============================================================
+   LIGHT TECH-GRID BACKGROUND - Responsive
+   ============================================================ */
+
+#root {
+  min-height: 100vh;
+  background-color: #f0f2f5;
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-attachment: fixed;
+}
+
+@media (max-width: 768px) {
+  #root {
+    background-size: 24px 24px;
   }
+}
+
+@media (max-width: 480px) {
+  #root {
+    background-size: 16px 16px;
+  }
+}
+
+.app-container {
+  min-height: 100vh;
+  background: transparent;
+}
+
+/* ===== SIDEBAR ===== */
+.sidebar {
+  background-color: #1E1B4B !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ===== CARDS - White with shadow ===== */
+.bg-white,
+.rounded-xl,
+.shadow-sm,
+.card {
+  background-color: #FFFFFF !important;
+  border: 1px solid #E5E7EB;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* ===== DARK BACKGROUNDS ===== */
+.bg-\[#1E1B4B\],
+.bg-primary {
+  background-color: #1E1B4B !important;
+}
+
+.bg-gradient-to-r {
+  background: linear-gradient(to right, #1E1B4B, #2A1F6E) !important;
+}
+
+/* ===== INPUTS ===== */
+input,
+textarea,
+select {
+  background-color: #FFFFFF !important;
+  border: 1px solid #D1D5DB;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: #3B82F6;
+  ring: 2px solid #3B82F6;
+}
+
+/* ===== UTILITY ===== */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ===== LOADING SPINNER ===== */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
 }
