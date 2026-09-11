@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Users, BookOpen, FolderKanban, Building, UserPlus, AlertCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useAppContext } from '../../context/AppContext';
 
 const AdminDashboard = () => {
+  const navigate = useNavigate();
+  const { students, lecturers, courses, projects } = useAppContext();
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalLecturers: 0,
@@ -13,20 +17,16 @@ const AdminDashboard = () => {
   });
 
   useEffect(() => {
-    const users = JSON.parse(localStorage.getItem('fet_users') || '[]');
-    const departments = JSON.parse(localStorage.getItem('fet_departments') || '[]');
-    const projects = JSON.parse(localStorage.getItem('fet_projects') || '[]');
-    
     setStats({
-      totalStudents: users.filter(u => u.role === 'student').length,
-      totalLecturers: users.filter(u => u.role === 'lecturer').length,
-      totalAdmins: users.filter(u => u.role === 'admin').length,
-      totalCourses: 30,
-      totalDepartments: departments.length || 5,
-      activeProjects: projects.filter(p => p.status === 'Active').length || 3,
-      pendingIssues: 2,
+      totalStudents: students.length,
+      totalLecturers: lecturers.length,
+      totalAdmins: 1,
+      totalCourses: courses.length,
+      totalDepartments: 5,
+      activeProjects: projects.filter(p => p.status === 'Active').length,
+      pendingIssues: 0,
     });
-  }, []);
+  }, [students, lecturers, courses, projects]);
 
   return (
     <div className="space-y-6">
@@ -114,13 +114,33 @@ const AdminDashboard = () => {
         <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-6">
           <h3 className="text-lg font-semibold text-[#191C1D] mb-4">Quick Actions</h3>
           <div className="grid grid-cols-2 gap-3">
-            <button className="p-3 bg-[#EDEEEF] rounded-xl hover:bg-[#E7E8E9] text-left">
+            <button
+              onClick={() => navigate('/admin/users')}
+              className="p-3 bg-[#EDEEEF] rounded-xl hover:bg-[#E7E8E9] text-left transition-colors"
+            >
               <Users size={18} className="text-[#3B82F6]" />
               <p className="text-sm font-medium mt-1">Manage Users</p>
             </button>
-            <button className="p-3 bg-[#EDEEEF] rounded-xl hover:bg-[#E7E8E9] text-left">
+            <button
+              onClick={() => navigate('/courses')}
+              className="p-3 bg-[#EDEEEF] rounded-xl hover:bg-[#E7E8E9] text-left transition-colors"
+            >
               <BookOpen size={18} className="text-[#8B5CF6]" />
               <p className="text-sm font-medium mt-1">Course Catalogue</p>
+            </button>
+            <button
+              onClick={() => navigate('/projects')}
+              className="p-3 bg-[#EDEEEF] rounded-xl hover:bg-[#E7E8E9] text-left transition-colors"
+            >
+              <FolderKanban size={18} className="text-green-600" />
+              <p className="text-sm font-medium mt-1">Projects</p>
+            </button>
+            <button
+              onClick={() => navigate('/academic')}
+              className="p-3 bg-[#EDEEEF] rounded-xl hover:bg-[#E7E8E9] text-left transition-colors"
+            >
+              <Building size={18} className="text-[#F59E0B]" />
+              <p className="text-sm font-medium mt-1">Academic Setup</p>
             </button>
           </div>
         </div>

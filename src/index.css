@@ -78,8 +78,6 @@
 
 /* ===== CARDS - White with shadow ===== */
 .bg-white,
-.rounded-xl,
-.shadow-sm,
 .card {
   background-color: #FFFFFF !important;
   border: 1px solid #E5E7EB;

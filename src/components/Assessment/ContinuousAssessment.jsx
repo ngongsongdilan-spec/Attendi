@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Save, FileText, Users, Target, Code, Award, 
-  Presentation, Search, ChevronRight, X, CheckCircle
+  Presentation, Search, ChevronRight, X, CheckCircle, Star
 } from 'lucide-react';
-import { mockStudents, mockProjects, mockGroups } from '../../data/mockData';
+import { useAppContext } from '../../context/AppContext';
 
 const ContinuousAssessment = ({ user }) => {
-  const [students, setStudents] = useState([]);
+  const { students } = useAppContext();
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [assessments, setAssessments] = useState({});
@@ -21,19 +21,32 @@ const ContinuousAssessment = ({ user }) => {
   const [success, setSuccess] = useState('');
   const [isEditing, setIsEditing] = useState(false);
 
+  const userRole = user?.role || 'student';
+  const isLecturer = userRole === 'lecturer' || userRole === 'admin';
+
   const lecturerName = user?.fullName || 'Lecturer';
   const lecturerDepartment = user?.department || 'Engineering';
 
-  const assessmentStudents = [
-    { id: 'CS24-001', name: 'Alida Wirsiy', department: 'Computer Engineering', level: '400', group: 'Group A' },
-    { id: 'CS24-018', name: 'James Miller', department: 'Software Engineering', level: '400', group: 'Group B' },
-    { id: 'CS24-099', name: 'Sarah Connor', department: 'Computer Engineering', level: '400', group: 'Group A' },
-    { id: 'CS24-112', name: 'Michael Chang', department: 'Electrical Engineering', level: '400', group: 'Group C' },
-    { id: 'CS24-055', name: 'Olivia Davis', department: 'Civil Engineering', level: '400', group: 'Group B' },
-  ];
+  const getGroupForStudent = (matricule) => {
+    try {
+      const groups = JSON.parse(localStorage.getItem('fet_groups') || '[]');
+      const g = groups.find(g => g.memberMatricules?.includes(matricule));
+      return g?.name || 'Unassigned';
+    } catch {
+      return 'Unassigned';
+    }
+  };
+
+  // Assessment targets come from the real student list
+  const assessmentStudents = students.map(s => ({
+    id: s.matricule,
+    name: s.fullName,
+    department: s.department,
+    level: s.level,
+    group: getGroupForStudent(s.matricule),
+  }));
 
   useEffect(() => {
-    setStudents(assessmentStudents);
     const saved = localStorage.getItem('fet_assessments');
     if (saved) {
       try {
@@ -44,7 +57,7 @@ const ContinuousAssessment = ({ user }) => {
     }
   }, []);
 
-  const filteredStudents = students.filter(s =>
+  const filteredStudents = assessmentStudents.filter(s =>
     s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     s.id.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -100,13 +113,9 @@ const ContinuousAssessment = ({ user }) => {
     setAssessments(updated);
     localStorage.setItem('fet_assessments', JSON.stringify(updated));
     
-    setSuccess(`✅ Assessment saved for ${selectedStudent.name}`);
+    setSuccess(`✅ Assessment saved and released to ${selectedStudent.name}`);
     setIsEditing(false);
     setTimeout(() => setSuccess(''), 3000);
-  };
-
-  const getStudentAssessment = (studentId) => {
-    return assessments[studentId];
   };
 
   const getAssessmentStatus = (studentId) => {
@@ -133,6 +142,83 @@ const ContinuousAssessment = ({ user }) => {
 
   const total = calculateTotal();
 
+  // ===== STUDENT VIEW: released results only =====
+  if (!isLecturer) {
+    const myResult = user?.matricule ? assessments[user.matricule] : null;
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-gradient-to-r from-[#1E1B4B] to-[#2A1F6E] rounded-2xl p-6 text-white">
+          <div className="flex items-start justify-between flex-wrap gap-4">
+            <div>
+              <h2 className="text-2xl font-bold">Assessment Results</h2>
+              <p className="text-[#8683BA] mt-1">View your released continuous assessment results</p>
+              <p className="text-[#8683BA] text-sm mt-1">🎓 {user?.fullName || 'Student'} • {user?.matricule || ''}</p>
+            </div>
+            <div className="bg-white/10 rounded-xl px-4 py-2 text-center">
+              <p className="text-xs text-[#8683BA]">Total Score</p>
+              <p className="text-xl font-bold">{myResult ? `${myResult.total}/100` : '—'}</p>
+            </div>
+          </div>
+        </div>
+
+        {myResult ? (
+          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-6">
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-[#C8C5D0]">
+              <div>
+                <h3 className="text-xl font-bold text-[#191C1D]">Result Breakdown</h3>
+                <p className="text-sm text-[#47464F]">Assessed by {myResult.assessedBy} · {myResult.date}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-[#47464F]">Overall</p>
+                <p className="text-3xl font-bold text-[#191C1D]">{myResult.total}<span className="text-lg text-[#47464F]">/100</span></p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {assessmentCategories.map((cat) => {
+                const Icon = cat.icon;
+                const score = myResult.scores?.[cat.key] || 0;
+                const pct = Math.round((score / cat.max) * 100);
+                return (
+                  <div key={cat.key} className="flex items-center gap-4 p-4 bg-[#EDEEEF] rounded-xl">
+                    <div className="p-2 bg-[#3B82F6]/10 rounded-lg">
+                      <Icon size={20} className="text-[#3B82F6]" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-[#191C1D]">{cat.label}</p>
+                      <div className="w-full h-2 bg-[#D9DADB] rounded-full mt-1">
+                        <div
+                          className="h-full bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] rounded-full"
+                          style={{ width: `${pct}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                    <p className="text-sm font-bold text-[#191C1D]">{score}<span className="text-xs text-[#47464F]">/{cat.max}</span></p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {myResult.feedback && (
+              <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                <p className="text-sm font-semibold text-[#191C1D] flex items-center gap-2"><Star size={16} /> Feedback</p>
+                <p className="text-sm text-[#47464F] mt-1">{myResult.feedback}</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-6 text-center">
+            <FileText size={48} className="mx-auto text-[#47464F] opacity-50" />
+            <p className="text-[#47464F] mt-4">No results have been released yet.</p>
+            <p className="text-sm text-[#47464F]">Your lecturer will publish your continuous assessment results here once available.</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ===== LECTURER VIEW =====
   return (
     <div className="space-y-6">
       <div className="bg-gradient-to-r from-[#1E1B4B] to-[#2A1F6E] rounded-2xl p-6 text-white">
@@ -144,7 +230,7 @@ const ContinuousAssessment = ({ user }) => {
           </div>
           <div className="bg-white/10 rounded-xl px-4 py-2 text-center">
             <p className="text-xs text-[#8683BA]">Students</p>
-            <p className="text-xl font-bold">{students.length}</p>
+            <p className="text-xl font-bold">{assessmentStudents.length}</p>
           </div>
         </div>
       </div>
@@ -161,21 +247,21 @@ const ContinuousAssessment = ({ user }) => {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#47464F]" size={18} />
             <input
               type="text"
-              placeholder="Search students by name or ID..."
+              placeholder="Search students by name or matricule..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-[#C8C5D0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#3B82F6] text-[#191C1D]"
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button className="px-4 py-2 bg-[#EDEEEF] rounded-xl text-sm font-medium hover:bg-[#E7E8E9] transition-colors">
-              All ({students.length})
+              All ({assessmentStudents.length})
             </button>
             <button className="px-4 py-2 bg-green-100 text-green-800 rounded-xl text-sm font-medium">
               Assessed ({Object.keys(assessments).length})
             </button>
             <button className="px-4 py-2 bg-yellow-100 text-yellow-800 rounded-xl text-sm font-medium">
-              Pending ({students.length - Object.keys(assessments).length})
+              Pending ({assessmentStudents.length - Object.keys(assessments).length})
             </button>
           </div>
         </div>
@@ -187,8 +273,7 @@ const ContinuousAssessment = ({ user }) => {
             <h3 className="text-sm font-semibold text-[#47464F] uppercase tracking-wider mb-3">Students</h3>
             <div className="space-y-2 max-h-[400px] overflow-y-auto">
               {filteredStudents.map((student) => {
-                const status = getStudentAssessment(student.id);
-                const hasAssessment = !!status;
+                const hasAssessment = !!assessments[student.id];
                 return (
                   <button
                     key={student.id}
@@ -298,7 +383,7 @@ const ContinuousAssessment = ({ user }) => {
                     className="flex items-center gap-2 px-6 py-3 bg-[#1E1B4B] text-white rounded-xl font-semibold hover:bg-[#2A1F6E] transition-colors"
                   >
                     <Save size={18} />
-                    Save Assessment
+                    Save & Release Result
                   </button>
                 </div>
               </>

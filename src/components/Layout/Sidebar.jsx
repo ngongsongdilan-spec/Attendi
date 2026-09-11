@@ -52,6 +52,7 @@ const Sidebar = ({ onLogout, userName = 'User', userRole = 'student' }) => {
       { path: '/groups', icon: Users, label: 'Groups' },
       { path: '/assessment', icon: ClipboardCheck, label: 'Assessment' },
       { path: '/contribution', icon: BarChart3, label: 'Contributions' },
+      { path: '/contribution/tracking', icon: Users, label: 'Contribution Tracking' },
       { path: '/announcements', icon: Bell, label: 'Announcements' },
       { path: '/academic', icon: Calendar, label: 'Academic' },
     ];

@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
+import { useAppContext } from '../../context/AppContext';
 import { X, Users, QrCode, ChevronRight, Search, Check } from 'lucide-react';
 
 const AttendanceSession = ({ user, onClose, onCreated }) => {
+  const { addAttendanceSession } = useAppContext();
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     courseCode: '',
@@ -39,6 +41,13 @@ const AttendanceSession = ({ user, onClose, onCreated }) => {
     { matricule: 'FE25D012', name: 'Sarah Connor', level: '400' },
   ];
 
+  // Class -> eligible students mapping (mock enrolment)
+  const getEligibleForClass = (className) => {
+    // All selected station students are always eligible; all mock students eligible by default
+    const byMatricule = { FE24A389: 'Alex Scholar', FE24B456: 'Emma Watson', FE23C789: 'James Miller', FE25D012: 'Sarah Connor' };
+    return { ids: Object.keys(byMatricule), names: byMatricule };
+  };
+
   const filteredStudents = eligibleStudents.filter(s =>
     s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     s.matricule.toLowerCase().includes(searchTerm.toLowerCase())
@@ -69,29 +78,21 @@ const AttendanceSession = ({ user, onClose, onCreated }) => {
       return;
     }
 
-    // Get existing sessions
-    const existingSessions = JSON.parse(localStorage.getItem('fet_attendance_sessions') || '[]');
-    
-    // Create new session
-    const newSession = {
-      id: `session-${Date.now()}`,
+    const eligibility = getEligibleForClass(formData.className);
+
+    addAttendanceSession({
       courseCode: formData.courseCode,
       courseName: courses.find(c => c.code === formData.courseCode)?.name || '',
       className: formData.className,
       mode: formData.mode,
       stationStudentIds: formData.stationStudents.map(s => s.matricule),
-      status: 'ACTIVE',
-      token: `TOKEN-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
-      tokenExpiresAt: Date.now() + 10000,
-      sessionExpiresAt: Date.now() + 60000,
-      createdAt: new Date().toISOString(),
+      eligibleStudentIds: eligibility.ids,
+      stationStudentNames: eligibility.names,
+      tokenDuration: formData.tokenDuration,
+      sessionDuration: formData.sessionDuration,
       lecturerId: user?.staffNumber || 'LEC001',
-    };
-    
-    // Save to localStorage
-    existingSessions.push(newSession);
-    localStorage.setItem('fet_attendance_sessions', JSON.stringify(existingSessions));
-    
+    });
+
     if (onCreated) onCreated();
     if (onClose) onClose();
   };

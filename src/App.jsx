@@ -10,6 +10,35 @@ import CoordinatorDashboard from './components/Dashboard/CoordinatorDashboard';
 import Login from './components/Auth/Login';
 import SignUp from './components/Auth/SignUp';
 import ProfilePage from './components/Profile/ProfilePage';
+import CourseCatalogue from './Pages/Courses/CourseCatalogue';
+import AttendanceDashboard from './components/Attendance/AttendanceDashboard';
+import ProjectsList from './components/Projects/ProjectsList';
+import ProjectDetails from './components/Projects/ProjectDetails';
+import TaskList from './components/Tasks/TaskList';
+import GroupList from './components/Groups/GroupList';
+import ContinuousAssessment from './components/Assessment/ContinuousAssessment';
+import ContributionTracking from './components/Assessment/ContributionTracking';
+import ContributionsPage from './components/Contributions/ContributionsPage';
+import AnnouncementList from './components/Announcements/AnnouncementList';
+import AcademicCalendar from './components/Academic/AcademicCalender';
+import AdminDashboard from './Pages/Admin/AdminDashboard';
+import AdminUsers from './Pages/Admin/AdminUser';
+
+const RequireRole = ({ role, children }) => {
+  const stored = localStorage.getItem('fet_user');
+  let userRole = 'student';
+  try {
+    const user = stored ? JSON.parse(stored) : null;
+    userRole = user?.role || localStorage.getItem('fet_user_role') || 'student';
+  } catch {
+    userRole = localStorage.getItem('fet_user_role') || 'student';
+  }
+
+  if (userRole !== role) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+};
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -33,6 +62,17 @@ function App() {
       }
     }
     setIsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    const onProfileUpdate = () => {
+      try {
+        const u = JSON.parse(localStorage.getItem('fet_user') || '{}');
+        if (u && u.fullName) setUser(u);
+      } catch { /* ignore */ }
+    };
+    window.addEventListener('fet-profile-updated', onProfileUpdate);
+    return () => window.removeEventListener('fet-profile-updated', onProfileUpdate);
   }, []);
 
   const handleLogin = (userData) => {
@@ -83,7 +123,7 @@ function App() {
         <div className="app-container flex h-screen bg-transparent">
           <Sidebar onLogout={handleLogout} userName={userName} userRole={userRole} />
           <div className="flex-1 flex flex-col overflow-hidden">
-            <Header user={user} />
+            <Header user={user} onLogout={handleLogout} />
             <main className="flex-1 overflow-y-auto p-4 md:p-6">
               <Routes>
                 <Route path="/" element={<DashboardHome />} />
@@ -92,6 +132,28 @@ function App() {
                 <Route path="/lecturer-dashboard" element={<LecturerDashboard user={user} />} />
                 <Route path="/coordinator-dashboard" element={<CoordinatorDashboard user={user} />} />
                 <Route path="/profile" element={<ProfilePage user={user} />} />
+                <Route path="/courses" element={<CourseCatalogue user={user} />} />
+                <Route path="/attendance" element={<AttendanceDashboard user={user} />} />
+                <Route path="/projects" element={<ProjectsList />} />
+                <Route path="/projects/:id" element={<ProjectDetails />} />
+                <Route path="/tasks" element={<TaskList />} />
+                <Route path="/groups" element={<GroupList />} />
+                <Route path="/assessment" element={<ContinuousAssessment user={user} />} />
+                <Route path="/contribution" element={<ContributionsPage user={user} />} />
+                <Route
+                  path="/contribution/tracking"
+                  element={<RequireRole role="lecturer"><ContributionTracking user={user} /></RequireRole>}
+                />
+                <Route path="/announcements" element={<AnnouncementList user={user} />} />
+                <Route path="/academic" element={<AcademicCalendar />} />
+                <Route
+                  path="/admin/dashboard"
+                  element={<RequireRole role="admin"><AdminDashboard user={user} /></RequireRole>}
+                />
+                <Route
+                  path="/admin/users"
+                  element={<RequireRole role="admin"><AdminUsers user={user} /></RequireRole>}
+                />
                 <Route path="*" element={<Navigate to="/" />} />
               </Routes>
             </main>

@@ -3,11 +3,14 @@ import {
   Users, FolderKanban, CheckCircle, Clock, 
   BookOpen, AlertCircle, QrCode, Search
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import StatsCard from './StatsCard';
 import ActivityFeed from './ActivityFeed';
-import { mockStudents, mockProjects, mockTasks, mockAttendance } from '../../data/mockData';
+import { useAppContext } from '../../context/AppContext';
 
 const LecturerDashboard = ({ user }) => {
+  const navigate = useNavigate();
+  const { students, projects, tasks, attendanceRecords } = useAppContext();
   const [stats, setStats] = useState({ 
     enrolled: 0,
     present: 0,
@@ -17,7 +20,8 @@ const LecturerDashboard = ({ user }) => {
     projects: 0,
     pending: 0,
   });
-  const [lecturerCourses, setLecturerCourses] = useState([]);
+  const [reviewRows, setReviewRows] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const lecturerName = user?.fullName || 'Lecturer';
   const lecturerDepartment = user?.department || 'Engineering';
@@ -25,10 +29,9 @@ const LecturerDashboard = ({ user }) => {
   const lecturerCoursesData = user?.courses || [];
 
   useEffect(() => {
-    setLecturerCourses(lecturerCoursesData);
-    const totalStudents = mockStudents.length;
-    const present = mockAttendance.filter(a => a.status === 'Present').length;
-    const late = mockAttendance.filter(a => a.status === 'Late').length;
+    const totalStudents = students.length;
+    const present = attendanceRecords.filter(a => a.status === 'Present').length;
+    const late = attendanceRecords.filter(a => a.status === 'Late').length;
     const notCheckedIn = totalStudents - present - late;
 
     setStats({
@@ -37,10 +40,16 @@ const LecturerDashboard = ({ user }) => {
       late: late,
       notCheckedIn: notCheckedIn,
       courses: lecturerCoursesData.length,
-      projects: mockProjects.length,
-      pending: mockTasks.filter(t => t.status !== 'Completed').length,
+      projects: projects.filter(p => p.lecturerId === user?.staffNumber || p.supervisor === lecturerName).length,
+      pending: tasks.filter(t => t.status !== 'Completed').length,
     });
-  }, [lecturerCoursesData]);
+
+    const reviewed = attendanceRecords.filter(r => r.status === 'Review');
+    setReviewRows(reviewed.map(r => {
+      const student = students.find(s => s.matricule === r.studentId) || { fullName: r.studentId, matricule: r.studentId };
+      return { fullName: student.fullName, id: student.matricule, status: r.status };
+    }));
+  }, [students, attendanceRecords, projects, tasks, user, lecturerCoursesData, lecturerName]);
 
   const statCards = [
     { icon: Users, label: 'Enrolled', value: stats.enrolled, color: 'secondary' },
@@ -48,6 +57,11 @@ const LecturerDashboard = ({ user }) => {
     { icon: Clock, label: 'Late', value: stats.late, color: 'warning' },
     { icon: AlertCircle, label: 'Not Checked In', value: stats.notCheckedIn, color: 'error' },
   ];
+
+  const filteredReviewRows = reviewRows.filter(s =>
+    s.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    s.id.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
@@ -80,8 +94,11 @@ const LecturerDashboard = ({ user }) => {
             <h3 className="text-lg font-semibold text-[#191C1D] mb-4">Scan to Attend</h3>
             <div className="bg-[#EDEEEF] rounded-xl p-8 text-center">
               <QrCode size={80} className="mx-auto text-[#3B82F6]" />
-              <p className="text-sm text-[#47464F] mt-4">QR Code will appear here</p>
-              <button className="mt-4 px-6 py-2 bg-[#1E1B4B] text-white rounded-xl font-medium hover:bg-[#2A1F6E]">
+              <p className="text-sm text-[#47464F] mt-4">Generate a QR code for your next lecture</p>
+              <button
+                onClick={() => navigate('/attendance')}
+                className="mt-4 px-6 py-2 bg-[#1E1B4B] text-white rounded-xl font-medium hover:bg-[#2A1F6E] transition-colors"
+              >
                 Generate QR
               </button>
             </div>
@@ -109,47 +126,57 @@ const LecturerDashboard = ({ user }) => {
                 <Users size={20} className="text-[#3B82F6]" />
                 Attendance Requiring Review
               </h3>
+              {reviewRows.length > 0 && (
+                <button
+                  onClick={() => navigate('/attendance')}
+                  className="text-sm text-[#3B82F6] hover:underline"
+                >
+                  Go to Attendance →
+                </button>
+              )}
             </div>
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#47464F]" size={18} />
               <input
                 type="text"
                 placeholder="Search students..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-[#C8C5D0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#3B82F6]"
               />
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-[#C8C5D0]">
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-[#47464F] uppercase">Student</th>
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-[#47464F] uppercase">ID</th>
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-[#47464F] uppercase">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { name: 'Alida Wirsiy', id: 'CS24-001', status: 'Present' },
-                    { name: 'James Miller', id: 'CS24-018', status: 'Late' },
-                    { name: 'Sarah Connor', id: 'CS24-099', status: 'Review' },
-                  ].map((s, i) => (
-                    <tr key={i} className="border-b border-[#C8C5D0] hover:bg-[#EDEEEF]">
-                      <td className="py-3 px-3 font-medium">{s.name}</td>
-                      <td className="py-3 px-3 text-[#47464F] text-sm">{s.id}</td>
-                      <td className="py-3 px-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          s.status === 'Present' ? 'bg-green-100 text-green-800' :
-                          s.status === 'Late' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
-                          {s.status}
-                        </span>
-                      </td>
+            {filteredReviewRows.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-[#C8C5D0]">
+                      <th className="text-left py-3 px-3 text-xs font-semibold text-[#47464F] uppercase">Student</th>
+                      <th className="text-left py-3 px-3 text-xs font-semibold text-[#47464F] uppercase">ID</th>
+                      <th className="text-left py-3 px-3 text-xs font-semibold text-[#47464F] uppercase">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {filteredReviewRows.map((s, i) => (
+                      <tr key={i} className="border-b border-[#C8C5D0] hover:bg-[#EDEEEF]">
+                        <td className="py-3 px-3 font-medium">{s.fullName}</td>
+                        <td className="py-3 px-3 text-[#47464F] text-sm">{s.id}</td>
+                        <td className="py-3 px-3">
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            {s.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <CheckCircle size={36} className="mx-auto text-green-500" />
+                <p className="text-sm text-[#47464F] mt-2">No records requiring review</p>
+                <p className="text-xs text-[#47464F]">Start an attendance session to begin capturing student attendance.</p>
+              </div>
+            )}
           </div>
         </div>
       </div>

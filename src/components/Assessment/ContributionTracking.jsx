@@ -3,29 +3,33 @@ import { useAppContext } from '../../context/AppContext';
 import { TrendingUp, Eye, Users, Filter, Search } from 'lucide-react';
 
 const ContributionTracking = () => {
-  const { students, tasks, milestones } = useAppContext();
+  const { students, tasks, milestones, groups } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterGroup, setFilterGroup] = useState('all');
 
   const studentContributions = useMemo(() => {
     const studentData = students.map(student => {
-      const studentTasks = tasks.filter(t => t.assignedTo === student.name);
+      const studentTasks = tasks.filter(t => t.assignedTo === student.matricule);
       const completedTasks = studentTasks.filter(t => t.status === 'Completed');
       const inProgressTasks = studentTasks.filter(t => t.status === 'In Progress');
-      
-      const studentMilestones = milestones.filter(m => m.assignedTo === student.name);
+
+      const studentGroup = groups.find(g => (g.memberMatricules || []).includes(student.matricule));
+      const studentMilestones = studentGroup
+        ? milestones.filter(m => m.project === studentGroup.project)
+        : [];
       const completedMilestones = studentMilestones.filter(m => m.progress === 100);
-      
+
       const totalTasks = studentTasks.length || 1;
       const taskCompletionRate = Math.round((completedTasks.length / totalTasks) * 100);
-      
+
       const totalMilestones = studentMilestones.length || 1;
       const milestoneCompletionRate = Math.round((completedMilestones.length / totalMilestones) * 100);
-      
+
       const overallContribution = Math.round((taskCompletionRate + milestoneCompletionRate) / 2);
-      
+
       return {
         ...student,
+        group: studentGroup?.name || 'Unassigned',
         tasksCompleted: `${completedTasks.length}/${studentTasks.length}`,
         milestonesMet: `${completedMilestones.length}/${studentMilestones.length}`,
         contribution: overallContribution || 0,
@@ -35,14 +39,14 @@ const ContributionTracking = () => {
     });
 
     return studentData;
-  }, [students, tasks, milestones]);
+  }, [students, tasks, milestones, groups]);
 
   const filteredStudents = useMemo(() => {
     let filtered = studentContributions;
     if (searchTerm) {
       filtered = filtered.filter(s => 
-        s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        s.course?.toLowerCase().includes(searchTerm.toLowerCase())
+        s.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.department?.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
     return filtered;
@@ -87,11 +91,11 @@ const ContributionTracking = () => {
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
               <div className="flex items-start gap-4">
                 <div className="w-12 h-12 rounded-full bg-[#3B82F6] text-white flex items-center justify-center font-bold text-lg flex-shrink-0">
-                  {student.name.split(' ').map(n => n[0]).join('')}
+                  {student.fullName.split(' ').map(n => n[0]).join('')}
                 </div>
                 <div>
                   <div className="flex items-center gap-3 flex-wrap">
-                    <h3 className="text-lg font-semibold text-[#191C1D]">{student.name}</h3>
+                    <h3 className="text-lg font-semibold text-[#191C1D]">{student.fullName}</h3>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                       student.status === 'On Track' 
                         ? 'bg-green-100 text-green-800' 
@@ -102,7 +106,7 @@ const ContributionTracking = () => {
                       {student.status}
                     </span>
                   </div>
-                  <p className="text-sm text-[#47464F]">{student.course || 'No course assigned'}</p>
+                  <p className="text-sm text-[#47464F]">{student.matricule} • {student.group} • {student.department}</p>
                   <div className="flex flex-wrap gap-4 mt-2">
                     <div>
                       <p className="text-xs text-[#47464F]">Tasks Completed</p>

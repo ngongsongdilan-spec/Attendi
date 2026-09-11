@@ -8,13 +8,16 @@ import {
 } from 'lucide-react';
 import StatsCard from './StatsCard';
 import ActivityFeed from './ActivityFeed';
-import { mockTasks, mockAnnouncements, mockProjects, mockGroups } from '../../data/mockData';
 
 const StudentDashboard = ({ user }) => {
   const { 
     activities, 
     currentSemester, 
     currentSchoolYear,
+    tasks: allTasks,
+    announcements: allAnnouncements,
+    projects: allProjects,
+    groups: allGroups,
     getCoursesForStudent,
     getCurrentSemesterStats
   } = useAppContext();
@@ -48,14 +51,14 @@ const StudentDashboard = ({ user }) => {
     const totalCredits = courses.reduce((acc, c) => acc + (c.credits || 3), 0);
     const semStats = getCurrentSemesterStats(studentMatricule);
     
-    const tasks = mockTasks.filter(t => t.assignedTo === studentMatricule);
+    const tasks = allTasks.filter(t => t.assignedTo === studentMatricule);
     const pendingTasks = tasks.filter(t => t.status !== 'Completed').length;
     const completedTasks = tasks.filter(t => t.status === 'Completed').length;
     setStudentTasks(tasks);
     
-    const projects = mockProjects.filter(p => {
-      const group = mockGroups.find(g => g.projectId === p.id);
-      return group?.members.includes(studentMatricule);
+    const projects = allProjects.filter(p => {
+      const group = allGroups.find(g => g.projectId === p.id);
+      return group && group.memberMatricules.includes(studentMatricule);
     });
     setStudentProjects(projects);
     
@@ -68,15 +71,15 @@ const StudentDashboard = ({ user }) => {
       totalCredits,
     });
 
-    setRecentAnnouncements(mockAnnouncements.slice(0, 3));
+    setRecentAnnouncements(allAnnouncements.slice(0, 3));
 
-    const deadlines = mockTasks
+    const deadlines = allTasks
       .filter(t => t.assignedTo === studentMatricule && t.status !== 'Completed')
       .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
       .slice(0, 5);
     setUpcomingDeadlines(deadlines);
 
-  }, [studentMatricule, currentSemester, currentSchoolYear, user]);
+  }, [studentMatricule, currentSemester, currentSchoolYear, user, allTasks, allAnnouncements, allProjects, allGroups]);
 
   const statCards = [
     { icon: FolderKanban, label: 'Active Projects', value: stats.activeProjects, color: 'secondary' },

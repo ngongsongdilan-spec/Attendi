@@ -29,13 +29,10 @@ const SignUp = ({ onSignUp, onSwitchToLogin }) => {
       if (depts.length === 0) {
         depts = [
           { id: 1, name: 'Computer Engineering', code: 'CE', coordinator: 'Dr. Alida Vance' },
-          { id: 2, name: 'Software Engineering', code: 'SE', coordinator: 'Dr. Sarah Chen' },
-          { id: 3, name: 'Mechanical Engineering', code: 'ME', coordinator: 'Dr. Robert Johnson' },
-          { id: 4, name: 'Petroleum Engineering', code: 'PE', coordinator: 'Dr. James Williams' },
-          { id: 5, name: 'Chemical Engineering', code: 'CHE', coordinator: 'Dr. Emily Davis' },
-          { id: 6, name: 'Civil Engineering', code: 'CVE', coordinator: 'Dr. Michael Brown' },
-          { id: 7, name: 'Electrical Engineering', code: 'EE', coordinator: 'Dr. David Wilson' },
-          { id: 8, name: 'Electronic Engineering', code: 'ENE', coordinator: 'Dr. Lisa Park' },
+          { id: 2, name: 'Civil Engineering', code: 'CVE', coordinator: 'Dr. Michael Brown' },
+          { id: 3, name: 'Chemical & Petroleum Engineering', code: 'CHE', coordinator: 'Dr. Emily Davis' },
+          { id: 4, name: 'Electrical & Electronic Engineering', code: 'EE', coordinator: 'Dr. David Wilson' },
+          { id: 5, name: 'Mechanical & Industrial Engineering', code: 'ME', coordinator: 'Dr. Robert Johnson' },
         ];
         // Save to localStorage
         localStorage.setItem('fet_departments', JSON.stringify(depts));

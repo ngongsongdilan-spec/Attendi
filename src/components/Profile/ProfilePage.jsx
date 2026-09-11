@@ -28,6 +28,7 @@ const ProfilePage = ({ user }) => {
     }
     setSuccess('✅ Profile updated successfully!');
     setIsEditing(false);
+    window.dispatchEvent(new CustomEvent('fet-profile-updated'));
     setTimeout(() => setSuccess(''), 3000);
   };
 
