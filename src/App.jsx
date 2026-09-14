@@ -23,6 +23,7 @@ import AnnouncementList from './components/Announcements/AnnouncementList';
 import AcademicCalendar from './components/Academic/AcademicCalender';
 import AdminDashboard from './Pages/Admin/AdminDashboard';
 import AdminUsers from './Pages/Admin/AdminUser';
+import MobileSimulator from './components/Mobile/MobileSimulator';
 
 const RequireRole = ({ role, children }) => {
   const stored = localStorage.getItem('fet_user');
@@ -146,6 +147,7 @@ function App() {
                 />
                 <Route path="/announcements" element={<AnnouncementList user={user} />} />
                 <Route path="/academic" element={<AcademicCalendar />} />
+                <Route path="/mobile-simulator" element={<MobileSimulator />} />
                 <Route
                   path="/admin/dashboard"
                   element={<RequireRole role="admin"><AdminDashboard user={user} /></RequireRole>}

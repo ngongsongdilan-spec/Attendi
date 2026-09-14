@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../../context/AppContext';
+import { mockGroups, mockProjects } from '../../data/MockData';
 import { 
   BookOpen, Clock, CheckCircle, Award, Calendar, 
   Users, TrendingUp, FileText, Bell, ChevronRight,
