@@ -24,23 +24,23 @@ const TaskForm = ({ task, onClose, onSuccess }) => {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-[#191C1D] mb-1">Task Title</label>
+        <label className="fet-label">Task Title</label>
         <input
           type="text"
           name="title"
           value={formData.title}
           onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
           required
-          className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6]"
+          className="fet-input"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-[#191C1D] mb-1">Project</label>
+        <label className="fet-label">Project</label>
         <select
           value={formData.project}
           onChange={(e) => setFormData(prev => ({ ...prev, project: e.target.value }))}
-          className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6] bg-white"
+          className="fet-select"
         >
           {projects.map(p => (
             <option key={p.id} value={p.title}>{p.title}</option>
@@ -50,11 +50,11 @@ const TaskForm = ({ task, onClose, onSuccess }) => {
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-[#191C1D] mb-1">Priority</label>
+          <label className="fet-label">Priority</label>
           <select
             value={formData.priority}
             onChange={(e) => setFormData(prev => ({ ...prev, priority: e.target.value }))}
-            className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6] bg-white"
+            className="fet-select"
           >
             <option value="Low">Low</option>
             <option value="Medium">Medium</option>
@@ -62,11 +62,11 @@ const TaskForm = ({ task, onClose, onSuccess }) => {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-[#191C1D] mb-1">Status</label>
+          <label className="fet-label">Status</label>
           <select
             value={formData.status}
             onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value }))}
-            className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6] bg-white"
+            className="fet-select"
           >
             <option value="Pending">Pending</option>
             <option value="In Progress">In Progress</option>
@@ -76,26 +76,26 @@ const TaskForm = ({ task, onClose, onSuccess }) => {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-[#191C1D] mb-1">Due Date</label>
+        <label className="fet-label">Due Date</label>
         <input
           type="date"
           value={formData.dueDate}
           onChange={(e) => setFormData(prev => ({ ...prev, dueDate: e.target.value }))}
-          className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6]"
+          className="fet-input"
         />
       </div>
 
-      <div className="flex justify-end gap-3 pt-4 border-t border-[#C8C5D0]">
+      <div className="flex justify-end gap-3 pt-4 border-t border-border-default">
         <button
           type="button"
           onClick={onClose}
-          className="px-4 py-2 border border-[#C8C5D0] rounded-lg text-[#47464F] hover:bg-[#EDEEEF] transition-colors"
+          className="fet-btn-secondary"
         >
           Cancel
         </button>
         <button
           type="submit"
-          className="px-4 py-2 bg-[#3B82F6] text-white rounded-lg font-medium hover:bg-[#3B82F6]/90 transition-colors"
+          className="fet-btn-primary"
         >
           {task ? 'Update Task' : 'Create Task'}
         </button>

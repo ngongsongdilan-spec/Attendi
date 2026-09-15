@@ -19,33 +19,33 @@ const AnnouncementForm = ({ onClose, onSuccess }) => {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-[#191C1D] mb-1">Title</label>
+        <label className="fet-label">Title</label>
         <input
           type="text"
           value={formData.title}
           onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
           required
-          className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6]"
+          className="w-full px-4 py-2 fet-input"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-[#191C1D] mb-1">Content</label>
+        <label className="fet-label">Content</label>
         <textarea
           value={formData.content}
           onChange={(e) => setFormData(prev => ({ ...prev, content: e.target.value }))}
           rows={4}
           required
-          className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6] resize-none"
+          className="w-full px-4 py-2 fet-input resize-none"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-[#191C1D] mb-1">Type</label>
+        <label className="fet-label">Type</label>
         <select
           value={formData.type}
           onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
-          className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6] bg-white"
+          className="w-full px-4 py-2 fet-select"
         >
           <option value="Update">Update</option>
           <option value="Important">Important</option>
@@ -54,26 +54,26 @@ const AnnouncementForm = ({ onClose, onSuccess }) => {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-[#191C1D] mb-1">Author</label>
+        <label className="fet-label">Author</label>
         <input
           type="text"
           value={formData.author}
           onChange={(e) => setFormData(prev => ({ ...prev, author: e.target.value }))}
-          className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6]"
+          className="w-full px-4 py-2 fet-input"
         />
       </div>
 
-      <div className="flex justify-end gap-3 pt-4 border-t border-[#C8C5D0]">
+      <div className="flex justify-end gap-3 pt-4 border-t border-border-default">
         <button
           type="button"
           onClick={onClose}
-          className="px-4 py-2 border border-[#C8C5D0] rounded-lg text-[#47464F] hover:bg-[#EDEEEF] transition-colors"
+          className="fet-btn-secondary"
         >
           Cancel
         </button>
         <button
           type="submit"
-          className="px-4 py-2 bg-[#3B82F6] text-white rounded-lg font-medium hover:bg-[#3B82F6]/90 transition-colors"
+          className="fet-btn-primary"
         >
           Post Announcement
         </button>

@@ -10,22 +10,25 @@ const ActivityFeed = ({ activities }) => {
   const items = activities && activities.length > 0 ? activities : defaultActivities;
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-4 md:p-6">
-      <h3 className="text-base md:text-lg font-semibold text-[#191C1D] flex items-center gap-2 mb-4">
-        <Clock size={18} className="md:size-5 text-[#3B82F6]" />
+    <div className="fet-card p-4 md:p-5">
+      <h3 className="text-[14px] md:text-[15px] font-semibold text-text-primary flex items-center gap-2 mb-4">
+        <Clock size={16} className="text-primary" strokeWidth={2} />
         Recent Activity
       </h3>
-      <div className="space-y-3">
+      <div className="space-y-1">
         {items.slice(0, 4).map((activity, i) => (
-          <div key={i} className="flex gap-3 p-2 hover:bg-[#EDEEEF] rounded-lg transition-colors">
-            <div className="w-8 h-8 rounded-full bg-[#3B82F6]/10 flex items-center justify-center flex-shrink-0">
-              <span className="text-[#3B82F6] text-sm">👤</span>
+          <div key={i} className="flex gap-3 p-2.5 rounded-lg hover:bg-page-bg transition-colors">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(63,53,181,0.08)' }}>
+              <span className="text-[13px]">
+                {activity.user === 'System' ? '⚙' : '👤'}
+              </span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-[#191C1D]">
-                <span className="font-semibold">{activity.user}</span> {activity.action}
+              <p className="text-[13px] text-text-primary">
+                <span className="font-semibold">{activity.user}</span>{' '}
+                <span className="text-text-secondary">{activity.action}</span>
               </p>
-              <p className="text-xs text-[#47464F] mt-0.5">{activity.time}</p>
+              <p className="text-[11px] text-text-secondary mt-0.5">{activity.time}</p>
             </div>
           </div>
         ))}

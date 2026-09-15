@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { mockGroups, mockProjects } from '../../data/MockData';
 import { 
-  BookOpen, Clock, CheckCircle, Award, Calendar, 
-  Users, TrendingUp, FileText, Bell, ChevronRight,
-  GraduationCap, BarChart3, BookMarked, FolderKanban,
+  BookOpen, Clock, CheckCircle, Calendar, 
+  Users, FileText, Bell, 
+  FolderKanban,
   ListTodo, AlertCircle
 } from 'lucide-react';
 import StatsCard from './StatsCard';
@@ -39,10 +39,6 @@ const StudentDashboard = ({ user }) => {
 
   const studentName = user?.fullName || 'Alex Scholar';
   const studentMatricule = user?.matricule || 'FE24A389';
-  const studentLevel = user?.level || '400';
-  const studentDepartment = user?.department || 'Computer Engineering';
-  const studentEmail = user?.email || 'No Email';
-  const studentAdmissionYear = user?.admissionYear || 'Not Set';
 
   useEffect(() => {
     const courses = getCoursesForStudent(studentMatricule);
@@ -86,7 +82,7 @@ const StudentDashboard = ({ user }) => {
     { icon: FolderKanban, label: 'Active Projects', value: stats.activeProjects, color: 'secondary' },
     { icon: ListTodo, label: 'Pending Tasks', value: stats.pendingTasks, color: 'warning' },
     { icon: CheckCircle, label: 'Completed Tasks', value: stats.completedTasks, color: 'success' },
-    { icon: BookOpen, label: 'Courses', value: stats.totalCourses, color: 'primary' },
+    { icon: BookOpen, label: 'Enrolled Courses', value: stats.totalCourses, color: 'info' },
   ];
 
   const formatDate = (date) => {
@@ -95,20 +91,19 @@ const StudentDashboard = ({ user }) => {
     });
   };
 
-  const getStatusColor = (status) => {
+  const getTaskStatusBadge = (status) => {
     switch(status) {
-      case 'Completed': return 'bg-green-100 text-green-800';
-      case 'In Progress': return 'bg-yellow-100 text-yellow-800';
-      case 'TODO': return 'bg-gray-100 text-gray-600';
-      default: return 'bg-gray-100 text-gray-600';
+      case 'Completed': return 'fet-badge fet-badge-completed';
+      case 'In Progress': return 'fet-badge fet-badge-warning';
+      default: return 'fet-badge fet-badge-inactive';
     }
   };
 
-  const getStatusIcon = (status) => {
+  const getTaskStatusIcon = (status) => {
     switch(status) {
-      case 'Completed': return <CheckCircle size={14} className="text-green-600" />;
-      case 'In Progress': return <Clock size={14} className="text-yellow-600" />;
-      default: return <AlertCircle size={14} className="text-gray-400" />;
+      case 'Completed': return <CheckCircle size={14} className="text-success" />;
+      case 'In Progress': return <Clock size={14} className="text-warning" />;
+      default: return <AlertCircle size={14} className="text-text-secondary" />;
     }
   };
 
@@ -122,119 +117,110 @@ const StudentDashboard = ({ user }) => {
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-[#3B82F6] border-t-transparent rounded-full animate-spin"></div>
+        <div className="w-8 h-8 border-[3px] border-primary border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4 md:space-y-6 max-w-7xl mx-auto">
-      {/* Welcome Header */}
-      <div className="bg-gradient-to-r from-[#1E1B4B] to-[#2A1F6E] rounded-xl md:rounded-2xl p-4 md:p-6 text-white">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+    <div className="space-y-5 max-w-7xl mx-auto">
+      {/* Welcome Banner */}
+      <div className="fet-welcome-banner">
+        <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h2 className="text-xl md:text-2xl font-bold">Welcome back, {studentName} 🎉</h2>
-            <p className="text-[#8683BA] text-sm mt-1">Here is what's happening with your projects today.</p>
-            <p className="text-[#8683BA] text-xs mt-1">
+            <h2 className="text-[20px] md:text-[22px] font-bold">Welcome back, {studentName}</h2>
+            <p className="text-white/50 text-[13px] mt-1">Here's what's happening with your projects today.</p>
+            <p className="text-white/35 text-[12px] mt-0.5">
               {currentSemester?.name} {currentSchoolYear?.name}
             </p>
           </div>
-          <div className="bg-white/10 rounded-xl px-4 py-2 text-center min-w-[80px]">
-            <p className="text-xs text-[#8683BA]">Attendance</p>
-            <p className="text-lg font-bold">{stats.attendance}%</p>
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl px-5 py-3 text-center min-w-[100px] border border-white/10">
+            <p className="text-[11px] text-white/50 font-medium uppercase tracking-wider">Attendance</p>
+            <p className="text-[26px] font-bold text-white leading-tight">{stats.attendance}%</p>
           </div>
         </div>
       </div>
 
-      {/* Stats Cards - Responsive Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         {statCards.map((stat, index) => (
           <StatsCard key={index} {...stat} />
         ))}
       </div>
 
-      {/* Main Content - Responsive */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-        {/* Left Column - My Projects */}
-        <div className="space-y-4 md:space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-4 md:p-6">
+      {/* Main Content */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-5">
+        {/* Left Column - Projects & Tasks */}
+        <div className="lg:col-span-2 space-y-4 md:space-y-5">
+          {/* My Projects */}
+          <div className="fet-card p-4 md:p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base md:text-lg font-semibold text-[#191C1D] flex items-center gap-2">
-                <FolderKanban size={18} className="md:size-5 text-[#3B82F6]" />
+              <h3 className="text-[14px] md:text-[15px] font-semibold text-text-primary flex items-center gap-2">
+                <FolderKanban size={16} className="text-primary" strokeWidth={2} />
                 My Projects
               </h3>
-              <button className="text-[#3B82F6] text-sm font-medium hover:underline">View All</button>
             </div>
-            <div className="space-y-3 md:space-y-4">
+            <div className="space-y-3">
               {studentProjects.length > 0 ? (
-                studentProjects.slice(0, 2).map((project) => {
+                studentProjects.slice(0, 3).map((project) => {
                   const group = mockGroups.find(g => g.projectId === project.id);
                   return (
-                    <div key={project.id} className="border border-[#C8C5D0] rounded-xl p-3 md:p-4 hover:shadow-md transition-shadow">
+                    <div key={project.id} className="p-3.5 rounded-xl border border-border-default hover:shadow-card transition-shadow">
                       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
                         <div>
-                          <h4 className="font-semibold text-[#191C1D] text-sm md:text-base">{project.title}</h4>
-                          <p className="text-xs md:text-sm text-[#47464F]">{project.department} · {group?.name || 'No Group'}</p>
-                          <p className="text-xs text-[#47464F]">{project.supervisor}</p>
+                          <h4 className="font-semibold text-text-primary text-[13.5px]">{project.title}</h4>
+                          <p className="text-[12px] text-text-secondary mt-0.5">{project.department} · {group?.name || 'No Group'}</p>
                         </div>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium self-start ${
-                          project.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                        }`}>
+                        <span className={`fet-badge ${project.status === 'Active' ? 'fet-badge-active' : 'fet-badge-pending'} self-start`}>
                           {project.status}
                         </span>
                       </div>
                       <div className="mt-3">
-                        <div className="flex items-center justify-between text-sm text-[#47464F] mb-1">
+                        <div className="flex items-center justify-between text-[12px] text-text-secondary mb-1.5">
                           <span>Progress</span>
-                          <span className="font-semibold text-[#191C1D]">{project.progress}%</span>
+                          <span className="font-semibold text-text-primary">{project.progress}%</span>
                         </div>
-                        <div className="w-full h-2 bg-[#EDEEEF] rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] rounded-full"
-                            style={{ width: `${project.progress}%` }}
-                          ></div>
+                        <div className="fet-progress-bar">
+                          <div className="fet-progress-bar-fill" style={{ width: `${project.progress}%` }}></div>
                         </div>
-                        <p className="text-xs text-[#47464F] mt-1">Deadline: {project.deadline}</p>
+                        <p className="text-[11px] text-text-secondary mt-1.5">Deadline: {project.deadline}</p>
                       </div>
                     </div>
                   );
                 })
               ) : (
                 <div className="text-center py-8">
-                  <FolderKanban size={32} className="mx-auto text-[#47464F] opacity-50" />
-                  <p className="text-[#47464F] mt-2">No projects assigned</p>
+                  <FolderKanban size={32} className="mx-auto text-text-secondary/30" />
+                  <p className="text-[13px] text-text-secondary mt-2">No projects assigned</p>
                 </div>
               )}
             </div>
           </div>
-        </div>
 
-        {/* Right Column - My Tasks & Deadlines */}
-        <div className="space-y-4 md:space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-4 md:p-6">
+          {/* My Tasks */}
+          <div className="fet-card p-4 md:p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base md:text-lg font-semibold text-[#191C1D] flex items-center gap-2">
-                <ListTodo size={18} className="md:size-5 text-[#3B82F6]" />
+              <h3 className="text-[14px] md:text-[15px] font-semibold text-text-primary flex items-center gap-2">
+                <ListTodo size={16} className="text-primary" strokeWidth={2} />
                 My Tasks
               </h3>
-              <button className="text-[#3B82F6] text-sm font-medium hover:underline">View All</button>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {studentTasks.length > 0 ? (
-                studentTasks.slice(0, 3).map((task) => {
+                studentTasks.slice(0, 4).map((task) => {
                   const project = mockProjects.find(p => p.id === task.projectId);
                   return (
-                    <div key={task.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-[#EDEEEF] rounded-xl gap-2">
+                    <div key={task.id} className="flex items-center justify-between p-3 rounded-xl bg-page-bg gap-3">
                       <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className="w-8 h-8 rounded-lg bg-[#3B82F6]/10 flex items-center justify-center flex-shrink-0">
-                          {getStatusIcon(task.status)}
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(63,53,181,0.08)' }}>
+                          {getTaskStatusIcon(task.status)}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-[#191C1D] text-sm truncate">{task.title}</p>
-                          <p className="text-xs text-[#47464F] truncate">{project?.title || 'No Project'}</p>
+                          <p className="font-medium text-text-primary text-[13px] truncate">{task.title}</p>
+                          <p className="text-[11px] text-text-secondary truncate">{project?.title || 'No Project'}</p>
                         </div>
                       </div>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium self-start sm:self-center ${getStatusColor(task.status)}`}>
+                      <span className={getTaskStatusBadge(task.status)}>
                         {task.status}
                       </span>
                     </div>
@@ -242,57 +228,62 @@ const StudentDashboard = ({ user }) => {
                 })
               ) : (
                 <div className="text-center py-8">
-                  <ListTodo size={32} className="mx-auto text-[#47464F] opacity-50" />
-                  <p className="text-[#47464F] mt-2">No tasks assigned</p>
+                  <ListTodo size={32} className="mx-auto text-text-secondary/30" />
+                  <p className="text-[13px] text-text-secondary mt-2">No tasks assigned</p>
                 </div>
               )}
             </div>
           </div>
+        </div>
 
+        {/* Right Column */}
+        <div className="space-y-4 md:space-y-5">
           {/* Upcoming Deadlines */}
-          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-4 md:p-6">
-            <h3 className="text-base md:text-lg font-semibold text-[#191C1D] flex items-center gap-2 mb-4">
-              <Clock size={18} className="md:size-5 text-[#F59E0B]" />
+          <div className="fet-card p-4 md:p-5">
+            <h3 className="text-[14px] md:text-[15px] font-semibold text-text-primary flex items-center gap-2 mb-4">
+              <Clock size={16} className="text-warning" strokeWidth={2} />
               Upcoming Deadlines
             </h3>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {upcomingDeadlines.length > 0 ? (
-                upcomingDeadlines.slice(0, 3).map((task) => {
+                upcomingDeadlines.slice(0, 4).map((task) => {
                   const project = mockProjects.find(p => p.id === task.projectId);
                   return (
-                    <div key={task.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-[#EDEEEF] rounded-xl gap-2">
-                      <div>
-                        <p className="font-medium text-[#191C1D] text-sm">{task.title}</p>
-                        <p className="text-xs text-[#47464F]">{project?.title || 'No Project'} • Due: {formatDate(task.dueDate)}</p>
+                    <div key={task.id} className="p-3 rounded-xl bg-page-bg">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-medium text-text-primary text-[13px] truncate">{task.title}</p>
+                          <p className="text-[11px] text-text-secondary mt-0.5">{project?.title || 'Project'} · Due {formatDate(task.dueDate)}</p>
+                        </div>
+                        <span className={`fet-badge ${
+                          task.priority === 'High' ? 'fet-badge-danger' :
+                          task.priority === 'Medium' ? 'fet-badge-warning' :
+                          'fet-badge-info'
+                        } self-start flex-shrink-0`}>
+                          {task.priority}
+                        </span>
                       </div>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium self-start sm:self-center ${
-                        task.priority === 'High' ? 'bg-red-100 text-red-800' :
-                        task.priority === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-blue-100 text-blue-800'
-                      }`}>
-                        {task.priority}
-                      </span>
                     </div>
                   );
                 })
               ) : (
-                <p className="text-center text-[#47464F] py-4">🎉 No upcoming deadlines!</p>
+                <p className="text-center text-text-secondary py-4 text-[13px]">No upcoming deadlines!</p>
               )}
             </div>
           </div>
 
           {/* Announcements */}
-          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-4 md:p-6">
-            <h3 className="text-base md:text-lg font-semibold text-[#191C1D] flex items-center gap-2 mb-4">
-              <Bell size={18} className="md:size-5 text-[#3B82F6]" />
+          <div className="fet-card p-4 md:p-5">
+            <h3 className="text-[14px] md:text-[15px] font-semibold text-text-primary flex items-center gap-2 mb-4">
+              <Bell size={16} className="text-primary" strokeWidth={2} />
               Announcements
             </h3>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {recentAnnouncements.map((a) => (
-                <div key={a.id} className="p-3 bg-[#EDEEEF] rounded-xl">
-                  <p className="font-medium text-[#191C1D] text-sm">{a.title}</p>
-                  <p className="text-xs text-[#47464F] mt-1">{a.content.substring(0, 60)}...</p>
-                  <p className="text-xs text-[#47464F] mt-1">{formatDate(a.date)} • {a.author}</p>
+                <div key={a.id} className="p-3 rounded-xl bg-page-bg">
+                  <p className="font-medium text-text-primary text-[13px]">{a.title}</p>
+                  <p className="text-[11px] text-text-secondary mt-0.5 line-clamp-2">{a.content}</p>
+                  <p className="text-[10px] text-text-secondary mt-1 font-medium">{formatDate(a.date)} · {a.author}</p>
                 </div>
               ))}
             </div>

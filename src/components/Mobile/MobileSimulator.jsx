@@ -26,7 +26,7 @@ const Notch = ({ type }) => {
 
 const StatusBar = ({ time }) => (
   <div
-    className="relative flex items-center justify-between px-6 bg-white text-[#191C1D] text-xs font-semibold z-10"
+    className="relative flex items-center justify-between px-6 bg-white text-text-primary text-xs font-semibold z-10"
     style={{ height: STATUS_BAR_HEIGHT }}
   >
     <span>{time}</span>
@@ -40,10 +40,10 @@ const StatusBar = ({ time }) => (
 
 const EmbeddedNotice = () => (
   <div className="flex items-center justify-center min-h-[60vh]">
-    <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-8 text-center max-w-md">
-      <Smartphone size={36} className="mx-auto text-[#3B82F6]" />
-      <h3 className="text-lg font-semibold text-[#191C1D] mt-3">Mobile Simulator</h3>
-      <p className="text-sm text-[#47464F] mt-1">
+    <div className="fet-card p-8 text-center max-w-md">
+      <Smartphone size={36} className="mx-auto text-primary" />
+      <h3 className="text-lg font-semibold text-text-primary mt-3">Mobile Simulator</h3>
+      <p className="text-sm text-text-secondary mt-1">
         The simulator is already active in this preview frame. Open the app in a browser tab to use it.
       </p>
     </div>
@@ -88,8 +88,8 @@ const Simulator = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-[#191C1D]">Mobile Simulator</h2>
-        <p className="text-[#47464F]">Preview the app live on a simulated device</p>
+        <h2 className="text-[22px] font-bold text-text-primary">Mobile Simulator</h2>
+        <p className="text-[13px] text-text-secondary">Preview the app live on a simulated device</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -97,10 +97,10 @@ const Simulator = () => {
           <button
             key={d.id}
             onClick={() => { setDeviceId(d.id); setRotated(false); }}
-            className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-colors ${
+            className={`px-3 py-2 rounded-xl text-[12px] font-semibold border transition-colors ${
               deviceId === d.id
-                ? 'bg-[#1E1B4B] text-white border-[#1E1B4B]'
-                : 'bg-white text-[#47464F] border-[#C8C5D0] hover:border-[#3B82F6] hover:text-[#191C1D]'
+                ? 'bg-primary text-white border-primary'
+                : 'bg-white text-text-secondary border-border-default hover:border-primary/40 hover:text-text-primary'
             }`}
           >
             {d.name}
@@ -111,21 +111,21 @@ const Simulator = () => {
           <button
             onClick={() => setRotated(r => !r)}
             title="Rotate device"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white text-[#47464F] border border-[#C8C5D0] hover:border-[#3B82F6] hover:text-[#191C1D] transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold bg-white text-text-secondary border border-border-default hover:border-primary/40 hover:text-text-primary transition-colors"
           >
             <RotateCw size={14} /> Rotate
           </button>
           <button
             onClick={() => setReloadKey(k => k + 1)}
             title="Reload preview"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white text-[#47464F] border border-[#C8C5D0] hover:border-[#3B82F6] hover:text-[#191C1D] transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold bg-white text-text-secondary border border-border-default hover:border-primary/40 hover:text-text-primary transition-colors"
           >
             <RefreshCw size={14} /> Reload
           </button>
           <button
             onClick={() => window.open('/', '_blank', 'noopener')}
             title="Open app in a new tab"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#3B82F6] text-white hover:bg-[#2563EB] transition-colors"
+            className="fet-btn-primary inline-flex items-center gap-1.5 px-3 py-2 !rounded-xl text-[12px]"
           >
             <ExternalLink size={14} /> Open
           </button>
@@ -134,7 +134,7 @@ const Simulator = () => {
 
       <div
         ref={containerRef}
-        className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-4 flex justify-center overflow-hidden"
+        className="fet-card p-4 flex justify-center overflow-hidden"
       >
         <div
           style={{
@@ -170,7 +170,7 @@ const Simulator = () => {
         </div>
       </div>
 
-      <p className="text-xs text-[#47464F] text-center">
+      <p className="text-xs text-text-secondary text-center">
         {device.name} • {width} × {height} px • {rotated ? 'Landscape' : 'Portrait'}
         {scale < 1 ? ` • scaled to ${Math.round(scale * 100)}%` : ''}
       </p>

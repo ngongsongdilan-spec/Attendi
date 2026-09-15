@@ -57,11 +57,11 @@ const ContributionForm = ({ projectId, onSubmit, onClose }) => {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
+    <div className="fet-card max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xl font-bold text-[#191C1D]">Submit Contribution</h3>
-        <button onClick={onClose} className="p-1 hover:bg-[#EDEEEF] rounded-lg">
-          <X size={24} className="text-[#47464F]" />
+        <h3 className="text-xl font-bold text-text-primary" style={{ fontSize: '18px' }}>Submit Contribution</h3>
+        <button onClick={onClose} className="p-1 hover:bg-page-bg rounded-lg">
+          <X size={24} className="text-text-secondary" />
         </button>
       </div>
 
@@ -73,35 +73,35 @@ const ContributionForm = ({ projectId, onSubmit, onClose }) => {
         )}
 
         <div>
-          <label className="block text-sm font-semibold text-[#191C1D] mb-1">Contribution Title *</label>
+          <label className="fet-label">Contribution Title *</label>
           <input
             type="text"
             value={formData.title}
             onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
             placeholder="e.g., Implemented login system"
-            className="w-full px-4 py-2 border border-[#C8C5D0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#3B82F6]"
+            className="w-full px-4 py-2 fet-input"
             required
           />
         </div>
 
         <div>
-          <label className="block text-sm font-semibold text-[#191C1D] mb-1">Description *</label>
+          <label className="fet-label">Description *</label>
           <textarea
             value={formData.description}
             onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
             placeholder="Describe your contribution..."
-            className="w-full px-4 py-2 border border-[#C8C5D0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#3B82F6] resize-none"
+            className="w-full px-4 py-2 fet-input resize-none"
             rows={4}
             required
           />
         </div>
 
         <div>
-          <label className="block text-sm font-semibold text-[#191C1D] mb-1">Contribution Type</label>
+          <label className="fet-label">Contribution Type</label>
           <select
             value={formData.type}
             onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
-            className="w-full px-4 py-2 border border-[#C8C5D0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#3B82F6] bg-white"
+            className="w-full px-4 py-2 fet-select"
           >
             {contributionTypes.map(type => (
               <option key={type} value={type}>{type}</option>
@@ -110,10 +110,10 @@ const ContributionForm = ({ projectId, onSubmit, onClose }) => {
         </div>
 
         <div>
-          <label className="block text-sm font-semibold text-[#191C1D] mb-1">Evidence (Optional)</label>
-          <div className="border-2 border-dashed border-[#C8C5D0] rounded-xl p-6 text-center hover:border-[#3B82F6] transition-colors">
-            <Upload className="mx-auto text-[#47464F] mb-2" size={32} />
-            <p className="text-sm text-[#47464F]">Drop files here or click to browse</p>
+          <label className="fet-label">Evidence (Optional)</label>
+          <div className="border-2 border-dashed border-border-default rounded-xl p-6 text-center hover:border-primary transition-colors">
+            <Upload className="mx-auto text-text-secondary mb-2" size={32} />
+            <p className="text-sm text-text-secondary">Drop files here or click to browse</p>
             <input
               type="file"
               onChange={handleFileChange}
@@ -122,7 +122,7 @@ const ContributionForm = ({ projectId, onSubmit, onClose }) => {
             />
             <label
               htmlFor="file-upload"
-              className="mt-2 inline-block px-4 py-2 bg-[#EDEEEF] rounded-lg text-sm font-medium hover:bg-[#E7E8E9] cursor-pointer"
+              className="mt-2 inline-block px-4 py-2 bg-page-bg rounded-lg text-sm font-medium hover:bg-[#E7E8E9] cursor-pointer"
             >
               Select File
             </label>
@@ -134,18 +134,18 @@ const ContributionForm = ({ projectId, onSubmit, onClose }) => {
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 pt-4 border-t border-[#C8C5D0]">
+        <div className="flex justify-end gap-3 pt-4 border-t border-border-default">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-[#C8C5D0] rounded-xl text-[#47464F] hover:bg-[#EDEEEF] transition-colors"
+            className="fet-btn-secondary"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={uploading}
-            className="px-6 py-2 bg-[#3B82F6] text-white rounded-xl font-semibold hover:bg-[#3B82F6]/90 transition-colors disabled:opacity-50"
+            className="fet-btn-primary disabled:opacity-50"
           >
             {uploading ? 'Submitting...' : 'Submit Contribution'}
           </button>

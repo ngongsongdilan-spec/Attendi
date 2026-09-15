@@ -23,22 +23,22 @@ const GroupForm = ({ group, onClose, onSuccess }) => {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-[#191C1D] mb-1">Group Name</label>
+        <label className="fet-label">Group Name</label>
         <input
           type="text"
           value={formData.name}
           onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
           required
-          className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6]"
+          className="fet-input"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-[#191C1D] mb-1">Project</label>
+        <label className="fet-label">Project</label>
         <select
           value={formData.project}
           onChange={(e) => setFormData(prev => ({ ...prev, project: e.target.value }))}
-          className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6] bg-white"
+          className="fet-select"
         >
           {projects.map(p => (
             <option key={p.id} value={p.title}>{p.title}</option>
@@ -47,37 +47,37 @@ const GroupForm = ({ group, onClose, onSuccess }) => {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-[#191C1D] mb-1">Group Lead</label>
+        <label className="fet-label">Group Lead</label>
         <input
           type="text"
           value={formData.lead}
           onChange={(e) => setFormData(prev => ({ ...prev, lead: e.target.value }))}
-          className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6]"
+          className="fet-input"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-[#191C1D] mb-1">Number of Members</label>
+        <label className="fet-label">Number of Members</label>
         <input
           type="number"
           value={formData.members}
           onChange={(e) => setFormData(prev => ({ ...prev, members: parseInt(e.target.value) || 0 }))}
           min="0"
-          className="w-full px-4 py-2 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6]"
+          className="fet-input"
         />
       </div>
 
-      <div className="flex justify-end gap-3 pt-4 border-t border-[#C8C5D0]">
+      <div className="flex justify-end gap-3 pt-4 border-t border-border-default">
         <button
           type="button"
           onClick={onClose}
-          className="px-4 py-2 border border-[#C8C5D0] rounded-lg text-[#47464F] hover:bg-[#EDEEEF] transition-colors"
+          className="fet-btn-secondary"
         >
           Cancel
         </button>
         <button
           type="submit"
-          className="px-4 py-2 bg-[#3B82F6] text-white rounded-lg font-medium hover:bg-[#3B82F6]/90 transition-colors"
+          className="fet-btn-primary"
         >
           {group ? 'Update Group' : 'Create Group'}
         </button>

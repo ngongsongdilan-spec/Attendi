@@ -25,32 +25,34 @@ const CoordinatorDashboard = ({ user }) => {
     { icon: Users, label: 'Students', value: stats.students, color: 'secondary' },
     { icon: Briefcase, label: 'Lecturers', value: stats.lecturers, color: 'tertiary' },
     { icon: FolderKanban, label: 'Projects', value: stats.projects, color: 'success' },
-    { icon: Building, label: 'Department', value: user?.department || 'CS', color: 'primary' },
+    { icon: Building, label: 'Department', value: user?.department || 'CS', color: 'info' },
   ];
 
   const quickActions = [
-    { label: 'Add Student', icon: UserPlus, color: '#3B82F6', action: () => navigate('/admin/users') },
-    { label: 'Add Lecturer', icon: UserPlus, color: '#8B5CF6', action: () => navigate('/admin/users') },
-    { label: 'New Project', icon: FolderKanban, color: '#F59E0B', action: () => navigate('/projects') },
-    { label: 'Assessment', icon: PlusCircle, color: '#10B981', action: () => navigate('/assessment') },
+    { label: 'Add Student', icon: UserPlus, action: () => navigate('/admin/users') },
+    { label: 'Add Lecturer', icon: UserPlus, action: () => navigate('/admin/users') },
+    { label: 'New Project', icon: FolderKanban, action: () => navigate('/projects') },
+    { label: 'Assessment', icon: PlusCircle, action: () => navigate('/assessment') },
   ];
 
   return (
-    <div className="space-y-4 md:space-y-6 max-w-7xl mx-auto">
-      <div className="bg-gradient-to-r from-[#1E1B4B] to-[#8B5CF6] rounded-xl md:rounded-2xl p-4 md:p-6 text-white">
-        <h2 className="text-xl md:text-2xl font-bold">Welcome, {user?.fullName || 'Coordinator'} 🏛️</h2>
-        <p className="text-[#C4C1FB] text-sm">{departmentName} Department</p>
+    <div className="space-y-5 max-w-7xl mx-auto">
+      <div className="fet-welcome-banner">
+        <div className="relative z-10">
+          <h2 className="text-[20px] md:text-[22px] font-bold">Welcome, {user?.fullName || 'Coordinator'}</h2>
+          <p className="text-white/50 text-[13px] mt-0.5">{departmentName} Department</p>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         {statCards.map((stat, i) => (
           <StatsCard key={i} {...stat} />
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-        <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-4 md:p-6">
-          <h3 className="text-base md:text-lg font-semibold text-[#191C1D] mb-4">Quick Actions</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5">
+        <div className="fet-card p-5">
+          <h3 className="text-[15px] font-semibold text-text-primary mb-4">Quick Actions</h3>
           <div className="grid grid-cols-2 gap-3">
             {quickActions.map((action) => {
               const Icon = action.icon;
@@ -58,18 +60,18 @@ const CoordinatorDashboard = ({ user }) => {
                 <button
                   key={action.label}
                   onClick={action.action}
-                  className="flex items-center gap-2 p-3 bg-[#EDEEEF] rounded-xl hover:bg-[#E7E8E9] text-sm transition-colors"
+                  className="flex items-center gap-2.5 p-3.5 rounded-xl bg-page-bg hover:bg-primary-light text-[13px] font-medium text-text-primary transition-colors"
                 >
-                  <Icon size={18} style={{ color: action.color }} /> {action.label}
+                  <Icon size={16} className="text-primary" strokeWidth={2} /> {action.label}
                 </button>
               );
             })}
           </div>
           <button
             onClick={() => navigate('/projects')}
-            className="mt-4 w-full flex items-center justify-center gap-2 p-3 bg-[#1E1B4B] text-white rounded-xl text-sm font-medium hover:bg-[#2A1F6E] transition-colors"
+            className="fet-btn-primary mt-4 w-full py-2.5"
           >
-            View All Projects <ArrowRight size={16} />
+            View All Projects <ArrowRight size={15} />
           </button>
         </div>
 

@@ -38,12 +38,12 @@ const ProjectsList = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-[#191C1D]">My Projects</h2>
-          <p className="text-[#47464F] text-xs">Manage and track your project progress</p>
+          <h2 className="text-[22px] font-bold text-text-primary">My Projects</h2>
+          <p className="text-text-secondary text-[13px]">Manage and track your project progress</p>
         </div>
         <button 
           onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-[#3B82F6] text-white rounded-lg font-semibold text-xs hover:bg-[#3B82F6]/90 transition-colors shadow"
+          className="fet-btn-primary"
         >
           <Plus size={16} />
           New Project
@@ -52,19 +52,19 @@ const ProjectsList = () => {
 
       <div className="flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#47464F]" size={16} />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary" size={16} />
           <input
             type="text"
             placeholder="Search projects..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-xs bg-white border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6] text-[#191C1D] placeholder:text-[#47464F]"
+            className="fet-input pl-9"
           />
         </div>
         <select 
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="px-4 py-2 text-xs border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6] text-[#191C1D] bg-white font-medium"
+          className="fet-select"
         >
           <option value="all">All Projects</option>
           <option value="Active">Active</option>
@@ -80,10 +80,10 @@ const ProjectsList = () => {
             <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
                 onClick={() => handleEdit(project)}
-                className="p-1.5 bg-white rounded-lg shadow-md hover:bg-[#EDEEEF] transition-colors"
+                className="p-1.5 bg-white rounded-lg shadow-md hover:bg-page-bg transition-colors"
                 title="Edit Project"
               >
-                <Edit2 size={15} className="text-[#3B82F6]" />
+                <Edit2 size={15} className="text-primary" />
               </button>
               <button
                 onClick={() => handleDelete(project.id)}
@@ -98,21 +98,21 @@ const ProjectsList = () => {
       </div>
 
       {filteredProjects.length === 0 && (
-        <div className="text-center py-12 bg-white rounded-lg border border-[#C8C5D0]">
-          <FolderKanban size={48} className="mx-auto text-[#47464F] opacity-50" />
-          <p className="text-[#47464F] mt-4 text-xs">No projects found. Create your first project!</p>
+        <div className="text-center py-12 fet-card">
+          <FolderKanban size={48} className="mx-auto text-text-secondary opacity-50" />
+          <p className="text-text-secondary mt-4 text-[13px]">No projects found. Create your first project!</p>
         </div>
       )}
 
       {showForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-6 border-b border-[#C8C5D0]">
-              <h3 className="text-lg font-bold text-[#191C1D]">
+            <div className="flex items-center justify-between p-6 border-b border-border-default">
+              <h3 className="text-[15px] font-bold text-text-primary">
                 {editingProject ? 'Edit Project' : 'Create New Project'}
               </h3>
-              <button onClick={handleCloseForm} className="p-1 hover:bg-[#EDEEEF] rounded-lg transition-colors">
-                <X size={20} className="text-[#47464F]" />
+              <button onClick={handleCloseForm} className="p-1 hover:bg-page-bg rounded-lg transition-colors">
+                <X size={20} className="text-text-secondary" />
               </button>
             </div>
             <div className="p-6">

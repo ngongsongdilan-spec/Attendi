@@ -99,10 +99,13 @@ function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f0f2f5]">
+      <div className="min-h-screen flex items-center justify-center bg-page-bg">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-[#3B82F6] border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="mt-4 text-[#47464F]">Loading...</p>
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: '#3F35B5' }}>
+            <span className="text-white font-bold text-lg">FET</span>
+          </div>
+          <div className="w-8 h-8 border-[3px] border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="mt-3 text-[13px] text-text-secondary font-medium">Loading...</p>
         </div>
       </div>
     );
@@ -121,9 +124,9 @@ function App() {
   return (
     <AppProvider>
       <Router>
-        <div className="app-container flex h-screen bg-transparent">
+        <div className="app-container flex h-screen bg-page-bg">
           <Sidebar onLogout={handleLogout} userName={userName} userRole={userRole} />
-          <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
             <Header user={user} onLogout={handleLogout} />
             <main className="flex-1 overflow-y-auto p-4 md:p-6">
               <Routes>

@@ -126,9 +126,9 @@ const ContinuousAssessment = ({ user }) => {
 
   const getStatusColor = (status) => {
     switch(status) {
-      case 'Published': return 'bg-green-100 text-green-800';
-      case 'Draft': return 'bg-yellow-100 text-yellow-800';
-      default: return 'bg-gray-100 text-gray-600';
+      case 'Published': return 'fet-badge fet-badge-active';
+      case 'Draft': return 'fet-badge fet-badge-pending';
+      default: return 'fet-badge fet-badge-inactive';
     }
   };
 
@@ -148,7 +148,7 @@ const ContinuousAssessment = ({ user }) => {
 
     return (
       <div className="space-y-6">
-        <div className="bg-gradient-to-r from-[#1E1B4B] to-[#2A1F6E] rounded-2xl p-6 text-white">
+        <div className="fet-welcome-banner">
           <div className="flex items-start justify-between flex-wrap gap-4">
             <div>
               <h2 className="text-2xl font-bold">Assessment Results</h2>
@@ -163,15 +163,15 @@ const ContinuousAssessment = ({ user }) => {
         </div>
 
         {myResult ? (
-          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-6">
-            <div className="flex items-center justify-between mb-6 pb-4 border-b border-[#C8C5D0]">
+          <div className="fet-card p-6">
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-border-default">
               <div>
-                <h3 className="text-xl font-bold text-[#191C1D]">Result Breakdown</h3>
-                <p className="text-sm text-[#47464F]">Assessed by {myResult.assessedBy} · {myResult.date}</p>
+                <h3 className="text-xl font-bold text-text-primary" style={{ fontSize: '18px' }}>Result Breakdown</h3>
+                <p className="text-sm text-text-secondary">Assessed by {myResult.assessedBy} · {myResult.date}</p>
               </div>
               <div className="text-right">
-                <p className="text-sm text-[#47464F]">Overall</p>
-                <p className="text-3xl font-bold text-[#191C1D]">{myResult.total}<span className="text-lg text-[#47464F]">/100</span></p>
+                <p className="text-sm text-text-secondary">Overall</p>
+                <p className="text-3xl font-bold text-text-primary">{myResult.total}<span className="text-lg text-text-secondary">/100</span></p>
               </div>
             </div>
 
@@ -181,20 +181,20 @@ const ContinuousAssessment = ({ user }) => {
                 const score = myResult.scores?.[cat.key] || 0;
                 const pct = Math.round((score / cat.max) * 100);
                 return (
-                  <div key={cat.key} className="flex items-center gap-4 p-4 bg-[#EDEEEF] rounded-xl">
-                    <div className="p-2 bg-[#3B82F6]/10 rounded-lg">
-                      <Icon size={20} className="text-[#3B82F6]" />
+                  <div key={cat.key} className="flex items-center gap-4 p-4 bg-page-bg rounded-xl">
+                    <div className="p-2 bg-primary/10 rounded-lg">
+                      <Icon size={20} className="text-primary" />
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-[#191C1D]">{cat.label}</p>
+                      <p className="text-sm font-medium text-text-primary">{cat.label}</p>
                       <div className="w-full h-2 bg-[#D9DADB] rounded-full mt-1">
                         <div
-                          className="h-full bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] rounded-full"
+                          className="h-full bg-gradient-to-r from-primary to-[#8B5CF6] rounded-full"
                           style={{ width: `${pct}%` }}
                         ></div>
                       </div>
                     </div>
-                    <p className="text-sm font-bold text-[#191C1D]">{score}<span className="text-xs text-[#47464F]">/{cat.max}</span></p>
+                    <p className="text-sm font-bold text-text-primary">{score}<span className="text-xs text-text-secondary">/{cat.max}</span></p>
                   </div>
                 );
               })}
@@ -202,16 +202,16 @@ const ContinuousAssessment = ({ user }) => {
 
             {myResult.feedback && (
               <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                <p className="text-sm font-semibold text-[#191C1D] flex items-center gap-2"><Star size={16} /> Feedback</p>
-                <p className="text-sm text-[#47464F] mt-1">{myResult.feedback}</p>
+                <p className="text-sm font-semibold text-text-primary flex items-center gap-2"><Star size={16} /> Feedback</p>
+                <p className="text-sm text-text-secondary mt-1">{myResult.feedback}</p>
               </div>
             )}
           </div>
         ) : (
-          <div className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-6 text-center">
-            <FileText size={48} className="mx-auto text-[#47464F] opacity-50" />
-            <p className="text-[#47464F] mt-4">No results have been released yet.</p>
-            <p className="text-sm text-[#47464F]">Your lecturer will publish your continuous assessment results here once available.</p>
+          <div className="fet-card p-6 text-center">
+            <FileText size={48} className="mx-auto text-text-secondary opacity-50" />
+            <p className="text-text-secondary mt-4">No results have been released yet.</p>
+            <p className="text-sm text-text-secondary">Your lecturer will publish your continuous assessment results here once available.</p>
           </div>
         )}
       </div>
@@ -221,7 +221,7 @@ const ContinuousAssessment = ({ user }) => {
   // ===== LECTURER VIEW =====
   return (
     <div className="space-y-6">
-      <div className="bg-gradient-to-r from-[#1E1B4B] to-[#2A1F6E] rounded-2xl p-6 text-white">
+      <div className="fet-welcome-banner">
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
             <h2 className="text-2xl font-bold">Continuous Assessment</h2>
@@ -241,26 +241,26 @@ const ContinuousAssessment = ({ user }) => {
         </div>
       )}
 
-      <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-sm border border-[#C8C5D0] p-6">
+      <div className="fet-card p-6">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#47464F]" size={18} />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary" size={18} />
             <input
               type="text"
               placeholder="Search students by name or matricule..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-[#C8C5D0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#3B82F6] text-[#191C1D]"
+              className="w-full pl-10 pr-4 py-2 fet-input"
             />
           </div>
           <div className="flex flex-wrap gap-2">
-            <button className="px-4 py-2 bg-[#EDEEEF] rounded-xl text-sm font-medium hover:bg-[#E7E8E9] transition-colors">
+            <button className="fet-btn-secondary text-sm">
               All ({assessmentStudents.length})
             </button>
-            <button className="px-4 py-2 bg-green-100 text-green-800 rounded-xl text-sm font-medium">
+            <button className="fet-btn-success text-sm">
               Assessed ({Object.keys(assessments).length})
             </button>
-            <button className="px-4 py-2 bg-yellow-100 text-yellow-800 rounded-xl text-sm font-medium">
+            <button className="fet-btn-danger text-sm">
               Pending ({assessmentStudents.length - Object.keys(assessments).length})
             </button>
           </div>
@@ -269,8 +269,8 @@ const ContinuousAssessment = ({ user }) => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
-          <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-sm border border-[#C8C5D0] p-4">
-            <h3 className="text-sm font-semibold text-[#47464F] uppercase tracking-wider mb-3">Students</h3>
+          <div className="fet-card p-4">
+            <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3">Students</h3>
             <div className="space-y-2 max-h-[400px] overflow-y-auto">
               {filteredStudents.map((student) => {
                 const hasAssessment = !!assessments[student.id];
@@ -280,30 +280,30 @@ const ContinuousAssessment = ({ user }) => {
                     onClick={() => handleSelectStudent(student)}
                     className={`w-full text-left p-3 rounded-xl transition-colors ${
                       selectedStudent?.id === student.id
-                        ? 'bg-[#3B82F6]/10 border-2 border-[#3B82F6]'
-                        : 'bg-[#EDEEEF] hover:bg-[#E7E8E9]'
+                        ? 'bg-primary/10 border-2 border-primary'
+                        : 'bg-page-bg hover:bg-[#E7E8E9]'
                     }`}
                   >
                     <div className="flex items-start justify-between">
                       <div>
-                        <p className="font-medium text-[#191C1D]">{student.name}</p>
-                        <p className="text-xs text-[#47464F]">{student.id} • {student.group}</p>
+                        <p className="font-medium text-text-primary">{student.name}</p>
+                        <p className="text-xs text-text-secondary">{student.id} • {student.group}</p>
                       </div>
                       <div className="text-right">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(getAssessmentStatus(student.id))}`}>
+                        <span className={`${getStatusColor(getAssessmentStatus(student.id))}`}>
                           {getAssessmentStatus(student.id)}
                         </span>
                       </div>
                     </div>
                     {hasAssessment && (
                       <div className="mt-1">
-                        <div className="w-full h-1.5 bg-[#EDEEEF] rounded-full overflow-hidden">
+                        <div className="w-full h-1.5 bg-page-bg rounded-full overflow-hidden">
                           <div 
-                            className="h-full bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6] rounded-full"
+                            className="h-full bg-gradient-to-r from-primary to-[#8B5CF6] rounded-full"
                             style={{ width: `${(assessments[student.id]?.total || 0)}%` }}
                           ></div>
                         </div>
-                        <p className="text-xs text-[#47464F] mt-0.5">
+                        <p className="text-xs text-text-secondary mt-0.5">
                           Score: {assessments[student.id]?.total || 0}/100
                         </p>
                       </div>
@@ -312,27 +312,27 @@ const ContinuousAssessment = ({ user }) => {
                 );
               })}
               {filteredStudents.length === 0 && (
-                <p className="text-center text-[#47464F] py-4">No students found</p>
+                <p className="text-center text-text-secondary py-4">No students found</p>
               )}
             </div>
           </div>
         </div>
 
         <div className="lg:col-span-2">
-          <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-sm border border-[#C8C5D0] p-6">
+          <div className="fet-card p-6">
             {selectedStudent ? (
               <>
-                <div className="flex items-center justify-between mb-6 pb-4 border-b border-[#C8C5D0]">
+                <div className="flex items-center justify-between mb-6 pb-4 border-b border-border-default">
                   <div>
-                    <h3 className="text-xl font-bold text-[#191C1D]">{selectedStudent.name}</h3>
-                    <p className="text-sm text-[#47464F]">
+                    <h3 className="text-xl font-bold text-text-primary" style={{ fontSize: '18px' }}>{selectedStudent.name}</h3>
+                    <p className="text-sm text-text-secondary">
                       {selectedStudent.id} • Level {selectedStudent.level} • {selectedStudent.department}
                     </p>
-                    <p className="text-sm text-[#47464F]">Group: {selectedStudent.group}</p>
+                    <p className="text-sm text-text-secondary">Group: {selectedStudent.group}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm text-[#47464F]">Total Score</p>
-                    <p className="text-3xl font-bold text-[#191C1D]">{total}<span className="text-lg text-[#47464F]">/100</span></p>
+                    <p className="text-sm text-text-secondary">Total Score</p>
+                    <p className="text-3xl font-bold text-text-primary">{total}<span className="text-lg text-text-secondary">/100</span></p>
                   </div>
                 </div>
 
@@ -340,12 +340,12 @@ const ContinuousAssessment = ({ user }) => {
                   {assessmentCategories.map((cat) => {
                     const Icon = cat.icon;
                     return (
-                      <div key={cat.key} className="flex items-center gap-4 p-4 bg-[#EDEEEF] rounded-xl">
-                        <div className="p-2 bg-[#3B82F6]/10 rounded-lg">
-                          <Icon size={20} className="text-[#3B82F6]" />
+                      <div key={cat.key} className="flex items-center gap-4 p-4 bg-page-bg rounded-xl">
+                        <div className="p-2 bg-primary/10 rounded-lg">
+                          <Icon size={20} className="text-primary" />
                         </div>
                         <div className="flex-1">
-                          <label className="block text-sm font-medium text-[#191C1D]">
+                          <label className="block text-sm font-medium text-text-primary">
                             {cat.label} (0-{cat.max})
                           </label>
                           <input
@@ -354,12 +354,12 @@ const ContinuousAssessment = ({ user }) => {
                             max={cat.max}
                             value={scores[cat.key]}
                             onChange={(e) => handleScoreChange(cat.key, e.target.value)}
-                            className="mt-1 w-24 px-3 py-1 border border-[#C8C5D0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#3B82F6] text-[#191C1D]"
+                            className="mt-1 w-24 px-3 py-1 fet-input"
                           />
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-semibold text-[#191C1D]">{scores[cat.key]}</p>
-                          <p className="text-xs text-[#47464F]">/ {cat.max}</p>
+                          <p className="text-sm font-semibold text-text-primary">{scores[cat.key]}</p>
+                          <p className="text-xs text-text-secondary">/ {cat.max}</p>
                         </div>
                       </div>
                     );
@@ -367,20 +367,20 @@ const ContinuousAssessment = ({ user }) => {
                 </div>
 
                 <div className="mt-6">
-                  <label className="block text-sm font-medium text-[#191C1D] mb-2">Feedback</label>
+                  <label className="fet-label mb-2">Feedback</label>
                   <textarea
                     value={feedback}
                     onChange={(e) => setFeedback(e.target.value)}
                     placeholder="Enter feedback for the student..."
-                    className="w-full px-4 py-3 border border-[#C8C5D0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#3B82F6] text-[#191C1D] resize-none"
+                    className="w-full px-4 py-3 fet-input resize-none"
                     rows={3}
                   />
                 </div>
 
-                <div className="mt-6 pt-4 border-t border-[#C8C5D0] flex justify-end">
+                <div className="mt-6 pt-4 border-t border-border-default flex justify-end">
                   <button
                     onClick={handleSave}
-                    className="flex items-center gap-2 px-6 py-3 bg-[#1E1B4B] text-white rounded-xl font-semibold hover:bg-[#2A1F6E] transition-colors"
+                    className="fet-btn-primary flex items-center gap-2"
                   >
                     <Save size={18} />
                     Save & Release Result
@@ -389,9 +389,9 @@ const ContinuousAssessment = ({ user }) => {
               </>
             ) : (
               <div className="text-center py-12">
-                <FileText size={48} className="mx-auto text-[#47464F] opacity-50" />
-                <p className="text-[#47464F] mt-4">Select a student to assess</p>
-                <p className="text-sm text-[#47464F]">Click on a student from the list to start</p>
+                <FileText size={48} className="mx-auto text-text-secondary opacity-50" />
+                <p className="text-text-secondary mt-4">Select a student to assess</p>
+                <p className="text-sm text-text-secondary">Click on a student from the list to start</p>
               </div>
             )}
           </div>

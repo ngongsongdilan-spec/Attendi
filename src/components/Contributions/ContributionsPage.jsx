@@ -54,10 +54,10 @@ const ContributionsPage = ({ user }) => {
   const getStatusColor = (status) => {
     switch (status) {
       case 'Approved':
-      case 'Accepted': return 'bg-green-100 text-green-800';
-      case 'Rejected': return 'bg-red-100 text-red-800';
-      case 'Clarification Requested': return 'bg-yellow-100 text-yellow-800';
-      default: return 'bg-gray-100 text-gray-600';
+      case 'Accepted': return 'fet-badge fet-badge-active';
+      case 'Rejected': return 'fet-badge fet-badge-danger';
+      case 'Clarification Requested': return 'fet-badge fet-badge-pending';
+      default: return 'fet-badge fet-badge-inactive';
     }
   };
 
@@ -69,15 +69,15 @@ const ContributionsPage = ({ user }) => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-[#191C1D]">Contributions</h2>
-          <p className="text-[#47464F] text-sm">
+          <h2 className="text-2xl font-bold text-text-primary">Contributions</h2>
+          <p className="text-text-secondary" style={{ fontSize: '13px' }}>
             {isLecturer ? 'Review student contributions for your projects' : 'Track and submit your contributions'}
           </p>
         </div>
         {!isLecturer && (
           <button
             onClick={() => setShowForm(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-[#3B82F6] text-white rounded-lg font-medium hover:bg-[#3B82F6]/90 transition-colors"
+            className="fet-btn-primary flex items-center gap-2"
           >
             <Plus size={18} />
             Submit Contribution
@@ -92,7 +92,7 @@ const ContributionsPage = ({ user }) => {
               key={s}
               onClick={() => setFilter(s)}
               className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-                filter === s ? 'bg-[#3B82F6] text-white' : 'bg-white border border-[#C8C5D0] text-[#47464F]'
+                filter === s ? 'fet-btn-primary' : 'fet-btn-secondary'
               }`}
             >
               {s === 'all' ? 'All' : s}
@@ -104,43 +104,43 @@ const ContributionsPage = ({ user }) => {
       {displayed.length > 0 ? (
         <div className="space-y-4">
           {displayed.map((c) => (
-            <div key={c.id} className="bg-white rounded-xl shadow-sm border border-[#C8C5D0] p-6">
+            <div key={c.id} className="fet-card p-6">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 flex-wrap">
-                    <h3 className="font-semibold text-[#191C1D]">{c.title}</h3>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(c.status)}`}>
+                    <h3 className="font-semibold text-text-primary">{c.title}</h3>
+                    <span className={`${getStatusColor(c.status)}`}>
                       {c.status}
                     </span>
                   </div>
                   {c.studentName && (
-                    <p className="text-sm text-[#47464F] mt-1">Submitted by {c.studentName} ({c.studentMatricule})</p>
+                    <p className="text-sm text-text-secondary mt-1">Submitted by {c.studentName} ({c.studentMatricule})</p>
                   )}
-                  <p className="text-sm text-[#47464F] mt-1">Type: {c.type}</p>
-                  <p className="text-sm text-[#191C1D] mt-2">{c.description}</p>
-                  <p className="text-xs text-[#47464F] mt-2">
+                  <p className="text-sm text-text-secondary mt-1">Type: {c.type}</p>
+                  <p className="text-sm text-text-primary mt-2">{c.description}</p>
+                  <p className="text-xs text-text-secondary mt-2">
                     {new Date(c.date).toLocaleString()} • Evidence: {c.evidenceFile || 'None attached'}
                   </p>
                 </div>
               </div>
 
               {isLecturer && c.status === 'Pending Review' && (
-                <div className="mt-4 pt-4 border-t border-[#C8C5D0] flex gap-3">
+                <div className="mt-4 pt-4 border-t border-border-default flex gap-3">
                   <button
                     onClick={() => handleStatusChange(c.id, 'Accepted')}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-green-500 text-white rounded-lg text-xs font-medium hover:bg-green-600"
+                    className="fet-btn-success flex items-center gap-1 text-xs"
                   >
                     <CheckCircle size={14} /> Accept
                   </button>
                   <button
                     onClick={() => handleStatusChange(c.id, 'Rejected')}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:bg-red-600"
+                    className="fet-btn-danger flex items-center gap-1 text-xs"
                   >
                     <XCircle size={14} /> Reject
                   </button>
                   <button
                     onClick={() => handleStatusChange(c.id, 'Request Clarification')}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-yellow-500 text-white rounded-lg text-xs font-medium hover:bg-yellow-600"
+                    className="fet-btn-secondary flex items-center gap-1 text-xs"
                   >
                     <MessageSquare size={14} /> Request Clarification
                   </button>
@@ -150,15 +150,15 @@ const ContributionsPage = ({ user }) => {
           ))}
         </div>
       ) : (
-        <div className="text-center py-12 bg-white rounded-xl border border-[#C8C5D0]">
-          <FileText size={48} className="mx-auto text-[#47464F] opacity-50" />
-          <p className="text-[#47464F] mt-4">
+        <div className="text-center py-12 fet-card">
+          <FileText size={48} className="mx-auto text-text-secondary opacity-50" />
+          <p className="text-text-secondary mt-4">
             {isLecturer ? 'No contributions to review yet.' : 'No contributions yet. Submit your first contribution!'}
           </p>
           {!isLecturer && (
             <button
               onClick={() => setShowForm(true)}
-              className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-[#3B82F6] text-white rounded-lg font-medium."
+              className="mt-4 fet-btn-primary inline-flex items-center gap-2"
             >
               <Upload size={16} /> Submit Contribution
             </button>

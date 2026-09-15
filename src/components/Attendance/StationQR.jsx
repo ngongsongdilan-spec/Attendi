@@ -15,9 +15,7 @@ const StationQR = ({ session, user }) => {
       setTimeLeft(remaining);
       
       if (remaining === 0) {
-        // Generate new token
         updateSessionToken(session.id);
-        // Update local token
         const updatedSession = JSON.parse(localStorage.getItem('fet_attendance_sessions') || '[]')
           .find(s => s.id === session.id);
         if (updatedSession) {
@@ -41,7 +39,7 @@ const StationQR = ({ session, user }) => {
   };
 
   return (
-    <div className="mt-4 p-4 bg-gradient-to-r from-[#8B5CF6] to-[#3B82F6] rounded-xl text-white">
+    <div className="mt-4 p-4 bg-gradient-to-r from-[#0F0B3D] to-[#3F35B5] rounded-xl text-white">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Users size={18} />
@@ -54,16 +52,16 @@ const StationQR = ({ session, user }) => {
       </div>
 
       <div className="bg-white rounded-xl p-6 text-center">
-        <div className="inline-block p-4 bg-white rounded-xl border-2 border-[#8B5CF6]">
-          <QrCode size={120} className="text-[#1E1B4B]" />
+        <div className="inline-block p-4 bg-white rounded-xl border-2 border-primary">
+          <QrCode size={120} className="text-[#0F0B3D]" />
         </div>
-        <p className="text-[#47464F] font-mono text-sm mt-2">{token}</p>
-        <p className="text-xs text-[#47464F] mt-1">Students scan this QR to mark attendance</p>
+        <p className="text-text-secondary font-mono text-sm mt-2">{token}</p>
+        <p className="text-xs text-text-secondary mt-1">Students scan this QR to mark attendance</p>
       </div>
 
       <div className="flex items-center justify-between mt-4">
         <p className="text-sm text-white/80">
-          {timeLeft > 0 ? `Token expires in ${timeLeft}s` : '⏰ Token expired'}
+          {timeLeft > 0 ? `Token expires in ${timeLeft}s` : 'Token expired'}
         </p>
         <button
           onClick={handleRefresh}
