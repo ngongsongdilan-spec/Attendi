@@ -119,6 +119,22 @@ def write_audit_entry(
         timestamp=timestamp or datetime.now(timezone.utc),
         correlation_id=_build_correlation_id(resource_type, resource_id, action, actor_id),
     )
+    # Audit records are durable.  Import lazily to keep this helper usable
+    # during Django startup while ensuring normal application actions cannot
+    # silently lose their audit trail.
+    from .models import AuditEvent
+
+    AuditEvent.objects.create(
+        action=entry.action,
+        resource_type=entry.resource_type,
+        resource_id=str(entry.resource_id),
+        actor_id=str(entry.actor_id),
+        details=entry.details,
+        old_value=entry.old_value,
+        new_value=entry.new_value,
+        correlation_id=entry.correlation_id,
+        timestamp=entry.timestamp,
+    )
     return entry
 
 

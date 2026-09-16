@@ -33,7 +33,7 @@ class AuthError(ValueError):
     """Base domain error raised by account workflows."""
 
 
-class AccountAlreadyExistsError(AuthError):
+class DuplicateAccountError(AuthError):
     """Raised when an active account already exists for an identity."""
 
 
@@ -54,27 +54,18 @@ class InvalidRoleError(AuthError):
 
 
 class AccountModelLike(Protocol):
-    """Minimal shape expected from an account model."""
+    """Minimal shape expected from an account model (matches the real User)."""
 
     id: Any
-    identity_id: Any
+    email: Any
+    username: Any
+    first_name: Any
+    last_name: Any
     role: Any
     is_active: Any
 
     def save(self) -> Any:
         ...
-
-
-def _exists(model: Optional[type[Any]], **filters: Any) -> bool:
-    if model is None:
-        return False
-    manager = getattr(model, "objects", None)
-    if manager is None or not hasattr(manager, "filter"):
-        return False
-    queryset = manager.filter(**filters)
-    if hasattr(queryset, "exists"):
-        return bool(queryset.exists())
-    return bool(queryset)
 
 
 def _is_active(account: Any) -> bool:
@@ -87,44 +78,71 @@ def _is_active(account: Any) -> bool:
     }
 
 
-def _identity_exists(identity_id: Any, IdentityModel: Optional[type[Any]]) -> None:
-    # BR-170: account creation must not point at a nonexistent identity.
-    if identity_id is None:
-        raise IdentityNotFoundError("Academic identity is required")
-    if IdentityModel is not None and not _exists(IdentityModel, id=identity_id):
-        raise IdentityNotFoundError(f"Academic identity {identity_id} does not exist")
-
-
 def register_account(
-    identity_id: Any,
     *,
+    email: str,
+    username: str,
+    first_name: str,
+    last_name: str,
+    password: str,
     AccountModel: type[AccountModelLike],
-    IdentityModel: Optional[type[Any]] = None,
 ) -> AccountModelLike:
-    """Create one active account using the server-controlled STUDENT role."""
-    # BR-001, BR-170: reject duplicate active accounts and invalid identities.
+    """Create one active account using the server-controlled STUDENT role.
+
+    BR-001: reject duplicate active accounts.
+    BR-002: registrations default to STUDENT.
+    BR-003: role is set server-side, never from client input.
+    BR-170: reject missing required fields.
+    """
     if AccountModel is None:
         raise ConfigurationError("AccountModel is required")
-    _identity_exists(identity_id, IdentityModel)
 
     manager = getattr(AccountModel, "objects", None)
     if manager is None or not hasattr(manager, "filter"):
         raise ConfigurationError("AccountModel.objects.filter is required")
-    existing = manager.filter(identity_id=identity_id)
-    records = list(existing)
-    if any(_is_active(record) for record in records):
-        raise AccountAlreadyExistsError(
-            f"An active account already exists for identity {identity_id}"
+
+    # BR-001, BR-170: reject missing fields and duplicate active accounts.
+    if not email or not str(email).strip():
+        raise IdentityNotFoundError("Email is required")
+    if not username or not str(username).strip():
+        raise IdentityNotFoundError("Username is required")
+    if not first_name or not str(first_name).strip():
+        raise IdentityNotFoundError("First name is required")
+    if not last_name or not str(last_name).strip():
+        raise IdentityNotFoundError("Last name is required")
+    if not password:
+        raise IdentityNotFoundError("Password is required")
+
+    existing = manager.filter(email=str(email).strip().lower())
+    if any(_is_active(record) for record in existing):
+        raise DuplicateAccountError(
+            f"An active account already exists for {email}"
         )
 
-    account = AccountModel()
-    account.identity_id = identity_id
-    # BR-002, BR-003: registration ignores any client-supplied role and stores
-    # the server default; permissions later come from this stored value.
-    account.role = DEFAULT_ROLE
-    if hasattr(account, "is_active"):
-        account.is_active = True
-    account.save()
+    # BR-002, BR-003: create with server-controlled STUDENT role only.
+    # The actual User model's create_user handles password hashing.
+    try:
+        account = manager.create_user(
+            email=str(email).strip().lower(),
+            username=str(username).strip(),
+            first_name=str(first_name).strip(),
+            last_name=str(last_name).strip(),
+            password=password,
+        )
+    except AttributeError:
+        # Fallback for Protocol-based callers that provide custom models.
+        account = AccountModel()
+        account.email = str(email).strip().lower()
+        account.username = str(username).strip()
+        account.first_name = str(first_name).strip()
+        account.last_name = str(last_name).strip()
+        account.role = DEFAULT_ROLE
+        if hasattr(account, "is_active"):
+            account.is_active = True
+        if hasattr(account, "set_password"):
+            account.set_password(password)
+        account.save()
+
     return account
 
 
