@@ -1,4 +1,6 @@
 from django.contrib import auth
+from django.http import JsonResponse
+from django.middleware.csrf import get_token
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -33,6 +35,12 @@ def _error_response(message, code, http_status=status.HTTP_400_BAD_REQUEST):
 
 def _success_response(data, http_status=status.HTTP_200_OK):
     return Response({"success": True, "data": data}, status=http_status)
+
+
+def csrf_token_view(request):
+    """Return the CSRF token. The token is also set as a cookie by Django's CsrfViewMiddleware."""
+    token = get_token(request)
+    return JsonResponse({"success": True, "data": {"csrfToken": token}})
 
 
 class RegisterView(APIView):

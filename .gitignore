@@ -5,6 +5,7 @@
 
 # Python
 venv/
+dev.sqlite3
 __pycache__/
 *.py[cod]
 *.pyo
