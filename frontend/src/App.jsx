@@ -70,8 +70,8 @@ function App() {
             <Header user={{ ...user, fullName: userName, role: userRole }} />
             <main className="flex-1 overflow-y-auto p-4 md:p-6">
               <Routes>
-                <Route path="/" element={<DashboardHome />} />
-                <Route path="/dashboard" element={<DashboardHome />} />
+                <Route path="/" element={<DashboardHome user={{ ...user, fullName: userName }} />} />
+                <Route path="/dashboard" element={<DashboardHome user={{ ...user, fullName: userName }} />} />
                 <Route path="/student-dashboard" element={<StudentDashboard user={{ ...user, fullName: userName }} />} />
                 <Route path="/lecturer-dashboard" element={<LecturerDashboard user={{ ...user, fullName: userName }} />} />
                 <Route path="/coordinator-dashboard" element={<CoordinatorDashboard user={{ ...user, fullName: userName }} />} />

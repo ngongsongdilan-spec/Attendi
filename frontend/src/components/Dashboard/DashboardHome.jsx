@@ -8,20 +8,26 @@
  */
 
 import React from 'react';
+import { normalizeRole } from '../../utils/tokenHelpers';
 import StudentDashboard from './StudentDashboard';
 import LecturerDashboard from './LecturerDashboard';
 import CoordinatorDashboard from './CoordinatorDashboard';
 
-const DashboardHome = () => {
-  const storedUser = JSON.parse(localStorage.getItem('fet_user') || '{}');
-  const role = storedUser?.role || 'student';
+/**
+ * DashboardHome — Routes to the correct dashboard based on user role.
+ *
+ * Uses the role from the authenticated user object (via App → useAuth).
+ * Falls back to 'student' if no role is available.
+ */
+const DashboardHome = ({ user }) => {
+  const displayRole = normalizeRole(user?.role);
 
-  if (role === 'coordinator') {
-    return <CoordinatorDashboard user={storedUser} />;
-  } else if (role === 'lecturer') {
-    return <LecturerDashboard user={storedUser} />;
+  if (displayRole === 'coordinator') {
+    return <CoordinatorDashboard user={user} />;
+  } else if (displayRole === 'lecturer') {
+    return <LecturerDashboard user={user} />;
   } else {
-    return <StudentDashboard user={storedUser} />;
+    return <StudentDashboard user={user} />;
   }
 };
 
