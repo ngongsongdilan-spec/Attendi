@@ -11,7 +11,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
     raise ValueError("SECRET_KEY environment variable is required")
 
-DEBUG = os.environ.get("DEBUG", "True").lower() in {"true", "1", "yes"}
+DEBUG = os.environ.get("DEBUG", "False").lower() in {"true", "1", "yes"}
 
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,testserver").split(",")
 
@@ -74,8 +74,10 @@ DATABASES = {
 
 CACHES = {
     "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": os.getenv("REDIS_URL", "redis://localhost:6379/0"),
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache" if DEBUG
+        else "django_redis.cache.RedisCache",
+        "LOCATION": "fetplatform" if DEBUG
+        else os.getenv("REDIS_URL", "redis://localhost:6379/0"),
     }
 }
 
@@ -96,6 +98,11 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "accounts.User"
 
+AUTHENTICATION_BACKENDS = [
+    "apps.accounts.backends.FlexibleLoginBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
@@ -103,19 +110,32 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "30/minute",
+        "user": "60/minute",
+        "login": "10/minute",
+        "register": "5/minute",
+    },
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
+    "EXCEPTION_HANDLER": "core.exception_handlers.custom_exception_handler",
 }
 
 # Session security (BR-200: session cookies are HTTP-only)
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SECURE = not DEBUG  # BR-200: secure cookies in production
 SESSION_COOKIE_AGE = 86400  # 24 hours
 SESSION_SAVE_EVERY_REQUEST = False
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 
 CSRF_COOKIE_HTTPONLY = False  # JS needs to read CSRF token for DRF browsable API
 CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SECURE = not DEBUG  # BR-200: secure cookies in production
 
 # Redis QR token settings (used by attendance feature later)
 QR_TOKEN_TTL_SECONDS = int(os.environ.get("QR_TOKEN_TTL_SECONDS", "10"))

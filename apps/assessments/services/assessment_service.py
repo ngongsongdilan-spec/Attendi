@@ -256,13 +256,13 @@ def record_assessment_decision(
         "recorded_at": utc_now().isoformat(),
     }
 
-    if audit_logger is not None:
-        audit_logger(
-            action="assessment_decision_recorded",
-            resource_type="assessment",
-            resource_id=getattr(assessment, "id", None),
-            actor_id=getattr(actor, "id", None),
-            details={"judgment": judgment},
-        )
+    # BR-132, BR-210: assessment decisions are always auditable.
+    _audit(
+        audit_logger,
+        action="assessment_decision_recorded",
+        assessment=assessment,
+        actor=actor,
+        details={"judgment": judgment},
+    )
 
     return outcome

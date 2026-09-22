@@ -15,6 +15,8 @@ const ProfilePage = ({ user, onUpdateProfile }) => {
     first_name: user?.first_name || '',
     last_name: user?.last_name || '',
     username: user?.username || '',
+    matricule: user?.matricule || '',
+    staffid: user?.staffid || '',
   });
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -137,6 +139,38 @@ const ProfilePage = ({ user, onUpdateProfile }) => {
             <div>
               <label className="block text-xs font-semibold text-[#47464F] uppercase tracking-wider">Email</label>
               <p className="mt-1 text-[#191C1D] font-medium">{user?.email || '-'}</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#47464F] uppercase tracking-wider">Matricule</label>
+              {isEditing ? (
+                <input
+                  type="text"
+                  name="matricule"
+                  value={formData.matricule}
+                  onChange={handleChange}
+                  placeholder="Student matricule number"
+                  className="w-full mt-1 px-4 py-2 border border-[#C8C5D0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#3B82F6] text-[#191C1D]"
+                />
+              ) : (
+                <p className="mt-1 text-[#191C1D] font-medium">{user?.matricule || '-'}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#47464F] uppercase tracking-wider">Staff ID</label>
+              {isEditing ? (
+                <input
+                  type="text"
+                  name="staffid"
+                  value={formData.staffid}
+                  onChange={handleChange}
+                  placeholder="Staff / employee number"
+                  className="w-full mt-1 px-4 py-2 border border-[#C8C5D0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#3B82F6] text-[#191C1D]"
+                />
+              ) : (
+                <p className="mt-1 text-[#191C1D] font-medium">{user?.staffid || '-'}</p>
+              )}
             </div>
 
             <div>

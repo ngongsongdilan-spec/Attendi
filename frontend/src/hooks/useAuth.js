@@ -32,7 +32,7 @@ import { getCsrfTokenFromCookie, normalizeRole } from '../utils/tokenHelpers';
  *   isAuthenticated: boolean,
  *   isLoading: boolean,
  *   error: string|null,
- *   login: (email: string, password: string) => Promise<void>,
+ *   login: (identifier: string, password: string) => Promise<void>,
  *   logout: () => Promise<void>,
  *   register: (data: object) => Promise<void>,
  *   updateProfile: (data: object) => Promise<void>,
@@ -78,15 +78,15 @@ export default function useAuth() {
   }, []);
 
   /**
-   * Log in with email and password.
-   * @param {string} email
+   * Log in with an identifier (email, matricule, or staffid) and password.
+   * @param {string} identifier - Email, matricule, or staffid.
    * @param {string} password
    */
-  const login = useCallback(async (email, password) => {
+  const login = useCallback(async (identifier, password) => {
     setError(null);
     try {
       await authApi.getCsrfToken();
-      await authApi.login({ email, password });
+      await authApi.login({ identifier, password });
       const userData = await authApi.getCurrentUser();
       setUser(userData);
     } catch (err) {
@@ -104,7 +104,9 @@ export default function useAuth() {
     try {
       await authApi.getCsrfToken();
       await authApi.register(data);
-      await authApi.login({ email: data.email, password: data.password });
+      // Auto-login after registration uses the email as the identifier
+      // (registration has no staffid/matricule yet — those are assigned later).
+      await authApi.login({ identifier: data.email, password: data.password });
       const userData = await authApi.getCurrentUser();
       setUser(userData);
     } catch (err) {

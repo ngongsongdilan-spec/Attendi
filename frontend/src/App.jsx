@@ -67,7 +67,7 @@ function App() {
         <div className="app-container flex h-screen bg-transparent">
           <Sidebar onLogout={logout} userName={userName} userRole={userRole} />
           <div className="flex-1 flex flex-col overflow-hidden">
-            <Header user={{ ...user, fullName: userName, role: userRole }} />
+            <Header user={{ ...user, fullName: userName, role: userRole }} onLogout={logout} />
             <main className="flex-1 overflow-y-auto p-4 md:p-6">
               <Routes>
                 <Route path="/" element={<DashboardHome user={{ ...user, fullName: userName }} />} />

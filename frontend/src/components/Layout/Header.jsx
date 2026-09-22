@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import { Search, Bell, ChevronDown } from 'lucide-react';
 
-const Header = ({ user }) => {
+const Header = ({ user, onLogout }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
 
@@ -101,7 +101,7 @@ const Header = ({ user }) => {
                 <div className="py-1">
                   <button className="w-full text-left px-4 py-2 text-sm hover:bg-[#EDEEEF] transition-colors">Profile</button>
                   <button className="w-full text-left px-4 py-2 text-sm hover:bg-[#EDEEEF] transition-colors">Settings</button>
-                  <button className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-[#EDEEEF] transition-colors">Logout</button>
+                  <button onClick={() => { onLogout?.(); }} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-[#EDEEEF] transition-colors">Logout</button>
                 </div>
               </div>
             )}

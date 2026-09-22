@@ -2,6 +2,7 @@
  * Login — Authentication form connected to the real backend.
  *
  * Calls POST /accounts/login/ via the useAuth hook.
+ * Accepts email, matricule, or staffid as the login identifier.
  * On success, the parent App component switches to the dashboard.
  *
  * @module components/Auth/Login
@@ -10,7 +11,7 @@
 import React, { useState } from 'react';
 
 const Login = ({ onLogin, onSwitchToSignUp }) => {
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -20,16 +21,16 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
     setIsLoading(true);
     setError('');
 
-    if (!email || !password) {
+    if (!identifier || !password) {
       setError('Please fill in all fields');
       setIsLoading(false);
       return;
     }
 
     try {
-      await onLogin(email, password);
+      await onLogin(identifier, password);
     } catch (err) {
-      setError(err.message || 'Invalid email or password');
+      setError(err.message || 'Invalid credentials');
     } finally {
       setIsLoading(false);
     }
@@ -43,6 +44,9 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
             <span className="text-white font-bold text-3xl">FET</span>
           </div>
           <h1 className="text-2xl font-bold">Welcome Back</h1>
+          <p className="text-sm text-[#47464F] mt-1">
+            Sign in with your email, matricule, or staff ID
+          </p>
         </div>
 
         {error && (
@@ -53,11 +57,12 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => { setEmail(e.target.value); setError(''); }}
+            type="text"
+            placeholder="Email, Matricule or Staff ID"
+            value={identifier}
+            onChange={(e) => { setIdentifier(e.target.value); setError(''); }}
             className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#3B82F6]"
+            autoComplete="username"
             required
           />
           <input
@@ -66,6 +71,7 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
             value={password}
             onChange={(e) => { setPassword(e.target.value); setError(''); }}
             className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#3B82F6]"
+            autoComplete="current-password"
             required
           />
           <button

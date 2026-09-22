@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import Any, Optional, Protocol
 
 from core.common import ConfigurationError, utc_now
+from core.audit import write_audit_entry
 
 
 class ProjectError(ValueError):
@@ -52,8 +53,20 @@ class TaskError(ProjectError):
     """Raised when task validation fails."""
 
 
+class TaskNotFoundError(TaskError):
+    """Raised when a task cannot be found."""
+
+
 class TaskStatusError(TaskError):
     """Raised when a task's status is invalid or unauthorized."""
+
+
+class ContributionError(ProjectError):
+    """Raised when contribution evidence is invalid or unauthorized."""
+
+
+class ArchiveError(ProjectError):
+    """Raised when a project cannot be archived safely."""
 
 
 class ProjectLike(Protocol):
@@ -395,14 +408,6 @@ def update_task_status(
     return task
 
 
-class TaskNotFoundError(TaskError):
-    """Raised when a task cannot be found."""
-
-
-class ArchiveError(ProjectError):
-    """Raised when a project cannot be archived safely."""
-
-
 def _require_project_participant(
     project_id: Any,
     student_id: Any,
@@ -510,6 +515,14 @@ def review_contribution(
     if notes is not None and hasattr(contribution, "notes"):
         contribution.notes = notes
     contribution.save()
+    # BR-122, BR-210: contribution review is a significant academic action.
+    write_audit_entry(
+        action="contribution_reviewed",
+        resource_type="contribution",
+        resource_id=getattr(contribution, "id", None),
+        actor_id=lecturer_id,
+        details={"approved": approved, "project_id": getattr(contribution, "project_id", None)},
+    )
     return contribution
 
 
@@ -539,10 +552,19 @@ def archive_project(
     if hasattr(project, "archived_at"):
         project.archived_at = utc_now()
     project.save()
+    # BR-161: archiving must always produce an audit record.
     if audit_logger is not None:
         audit_logger(
             action="project_archived",
             project_id=getattr(project, "id", None),
             actor_id=actor_id,
+        )
+    else:
+        write_audit_entry(
+            action="project_archived",
+            resource_type="project",
+            resource_id=getattr(project, "id", None),
+            actor_id=actor_id,
+            details={"status": "archived"},
         )
     return project

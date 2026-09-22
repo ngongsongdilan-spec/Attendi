@@ -31,9 +31,10 @@ export async function register(data) {
 }
 
 /**
- * Log in with email and password.
+ * Log in with email, matricule, or staffid plus password.
  * Sets a session cookie on success.
- * @param {{email: string, password: string}} data
+ * @param {{identifier: string, password: string}} data - `identifier` is the
+ *   email, matricule, or staffid entered by the user.
  * @returns {Promise<object>} Authenticated user object
  */
 export async function login(data) {

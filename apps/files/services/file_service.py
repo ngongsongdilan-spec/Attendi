@@ -29,6 +29,12 @@ from core.academic_access import (
 )
 from core.common import ConfigurationError, utc_now
 
+try:
+    from django.conf import settings as django_settings
+    DEFAULT_MAX_FILE_SIZE_BYTES = getattr(django_settings, "MAX_FILE_SIZE_BYTES", 25 * 1024 * 1024)
+except ImportError:
+    DEFAULT_MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
+
 
 class FileServiceError(ValueError):
     """Base error for file validation or access decisions."""
@@ -68,7 +74,6 @@ ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 ALLOWED_TEXT_TYPES = {"text/plain", "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
 ALLOWED_VIDEO_TYPES = {"video/mp4", "video/webm"}
 ALLOWED_TYPES = ALLOWED_IMAGE_TYPES | ALLOWED_TEXT_TYPES | ALLOWED_VIDEO_TYPES
-DEFAULT_MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
 
 
 def _normalize_content_type(value: Any) -> str:

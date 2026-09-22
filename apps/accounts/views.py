@@ -4,6 +4,7 @@ from django.middleware.csrf import get_token
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
 from core.academic_access import is_admin_user
@@ -46,6 +47,8 @@ def csrf_token_view(request):
 class RegisterView(APIView):
     permission_classes = []
     authentication_classes = []
+    throttle_classes = [AnonRateThrottle, ScopedRateThrottle]
+    throttle_scope = "register"
 
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
@@ -61,9 +64,13 @@ class RegisterView(APIView):
                 password=data["password"],
                 AccountModel=User,
             )
-        except DuplicateAccountError as exc:
+        except DuplicateAccountError:
+            # BR-203: uniform response — indistinguishable from a validation error
+            # so attackers cannot enumerate valid email addresses.
             return _error_response(
-                str(exc), "DUPLICATE_ACCOUNT", status.HTTP_409_CONFLICT,
+                "Registration failed. Please check your details.",
+                "INVALID_DATA",
+                status.HTTP_400_BAD_REQUEST,
             )
         except AuthError as exc:
             return _error_response(str(exc), "INVALID_DATA", status.HTTP_400_BAD_REQUEST)
@@ -77,20 +84,26 @@ class RegisterView(APIView):
 class LoginView(APIView):
     permission_classes = []
     authentication_classes = []
+    throttle_classes = [AnonRateThrottle, ScopedRateThrottle]
+    throttle_scope = "login"
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        login_identifier = data["login_identifier"]
+        password = data["password"]
+
+        # Resolve the user by email, matricule, or staffid.
         user = auth.authenticate(
             request,
-            email=data["email"],
-            password=data["password"],
+            username=login_identifier,
+            password=password,
         )
         if user is None:
             return _error_response(
-                "Invalid email or password.",
+                "Invalid credentials.",
                 "INVALID_CREDENTIALS",
                 status.HTTP_401_UNAUTHORIZED,
             )

@@ -28,6 +28,14 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("role", "ADMINISTRATOR")
         return self.create_user(email, username, first_name, last_name, password, **extra_fields)
 
+    def get_by_natural_key(self, email):
+        """Allow authentication by email, matricule, or staffid."""
+        return self.get(
+            models.Q(email__iexact=email)
+            | models.Q(matricule__iexact=email)
+            | models.Q(staffid__iexact=email)
+        )
+
 
 class User(AbstractBaseUser, PermissionsMixin):
     class Role(models.TextChoices):
@@ -40,6 +48,22 @@ class User(AbstractBaseUser, PermissionsMixin):
     username = models.CharField(unique=True, max_length=150)
     first_name = models.CharField(max_length=150)
     last_name = models.CharField(max_length=150)
+    matricule = models.CharField(
+        max_length=50,
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Student matricule number (assigned on enrollment).",
+    )
+    staffid = models.CharField(
+        max_length=50,
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Staff / employee number (assigned by administration).",
+    )
     role = models.CharField(
         max_length=20,
         choices=Role.choices,

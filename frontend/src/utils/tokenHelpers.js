@@ -2,7 +2,7 @@
  * CSRF token and cookie helpers.
  *
  * The CSRF cookie is set by Django on the GET /auth/csrf/ endpoint.
- * This module provides utilities to read and cache it.
+ * This module provides utilities to read it.
  *
  * @module utils/tokenHelpers
  */
@@ -16,25 +16,6 @@ const CSRF_COOKIE_NAME = 'csrftoken';
 export function getCsrfTokenFromCookie() {
   const match = document.cookie.match(new RegExp('(^| )' + CSRF_COOKIE_NAME + '=([^;]+)'));
   return match ? decodeURIComponent(match[2]) : null;
-}
-
-/**
- * Cache the CSRF token in sessionStorage for quick access.
- * Only stores the token if it is not already present.
- * @param {string} token
- */
-export function cacheCsrfToken(token) {
-  if (token) {
-    sessionStorage.setItem('fet_csrf_token', token);
-  }
-}
-
-/**
- * Retrieve the cached CSRF token.
- * @returns {string|null}
- */
-export function getCachedCsrfToken() {
-  return sessionStorage.getItem('fet_csrf_token');
 }
 
 /**

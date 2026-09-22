@@ -51,8 +51,60 @@ class AccountsApiTests(TestCase):
             },
             format="json",
         )
-        self.assertEqual(duplicate.status_code, 409)
-        self.assertEqual(duplicate.data["error"]["code"], "DUPLICATE_ACCOUNT")
+        # BR-203: duplicate-email failure is indistinguishable from a generic
+        # validation failure — same 400 status, same envelope, same code.
+        self.assertEqual(duplicate.status_code, 400)
+        self.assertEqual(duplicate.data["error"]["code"], "INVALID_DATA")
+
+    def test_duplicate_email_is_indistinguishable_from_validation_failure(self):
+        # Valid registration payload -> account created.
+        first = self.client.post(
+            reverse("accounts:register"),
+            {
+                "email": "taken@example.test",
+                "username": "taken-user",
+                "first_name": "Take",
+                "last_name": "N",
+                "password": "StrongPass!2026",
+            },
+            format="json",
+        )
+        self.assertEqual(first.status_code, 201)
+
+        # Duplicate email on an otherwise-valid payload.
+        duplicate = self.client.post(
+            reverse("accounts:register"),
+            {
+                "email": "taken@example.test",
+                "username": "someone-else",
+                "first_name": "Some",
+                "last_name": "Else",
+                "password": "StrongPass!2026",
+            },
+            format="json",
+        )
+        # Plain validation failure (short password) on the same endpoint.
+        malformed = self.client.post(
+            reverse("accounts:register"),
+            {
+                "email": "unused@example.test",
+                "username": "fresh-user",
+                "first_name": "Fresh",
+                "last_name": "User",
+                "password": "short",
+            },
+            format="json",
+        )
+
+        # Same status, same envelope keys, same error code — an observer
+        # cannot tell which failure is which.
+        self.assertEqual(duplicate.status_code, malformed.status_code)
+        self.assertEqual(duplicate.status_code, 400)
+        self.assertEqual(set(duplicate.data.keys()), {"success", "error"})
+        self.assertEqual(set(malformed.data.keys()), {"success", "error"})
+        self.assertEqual(duplicate.data["success"], malformed.data["success"])
+        self.assertEqual(duplicate.data["error"]["code"], malformed.data["error"]["code"])
+        self.assertEqual(duplicate.data["error"]["code"], "INVALID_DATA")
 
     def test_invalid_login_is_rejected(self):
         response = self.client.post(

@@ -1,500 +1,245 @@
-"""Attendance service for active session validation and student check-in.
-
-This module is intentionally framework-agnostic and does not build HTTP
-responses or import DRF request objects. It raises domain errors when the
-business rules are violated, leaving the API layer to map those exceptions to
-standard error payloads.
-
-Relevant rules implemented here:
-- BR-030 Active attendance sessions only
-- BR-031 Only eligible students may attend
-- BR-032 Student must be authenticated
-- BR-033 Valid temporary QR token required
-- BR-037 Token must match the active session
-- BR-038 Expired token cannot be reused
-- BR-039 Student must submit their own attendance only
-- BR-040 One attendance record per student per session
-- BR-041 No submissions after session expiry
-- BR-042 Corrections must remain auditable
-- BR-050 Checkpoint students must be eligible
-- BR-051 Checkpoint student must be physically present (checked by lecturer)
-- BR-063 Attendance tied to authenticated account
-- BR-064 Suspicious activity is reviewable, not automatic misconduct
-"""
+"""Security-critical attendance workflows (BR-030 through BR-064)."""
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence
+from typing import Any, Iterable, List, Optional
 
-from core.common import ConfigurationError, get_attr, utc_now
+from django.db import IntegrityError, transaction
+from django.utils import timezone
+
+from apps.academic.models import ClassSession, Enrollment
+from apps.academic.services.eligibility_service import is_student_eligible_for_class
+from apps.accounts.models import User
+from apps.attendance.models import (
+    AttendanceCheckpoint,
+    AttendanceCorrection,
+    AttendanceRecord,
+    AttendanceSession,
+)
+from apps.attendance.utils.qr_tokens import (
+    InvalidTokenError,
+    TokenAlreadyUsedError,
+    TokenExpiredError,
+    consume_token,
+    generate_token,
+)
+from core.audit import write_audit_entry
 
 
 class AttendanceError(ValueError):
-    """Base domain error for attendance operations."""
+    """Base error for every rejected attendance operation."""
 
 
-class SessionNotActiveError(AttendanceError):
-    """Raised when the attendance session is not currently active."""
+class SessionExpiredError(AttendanceError):
+    """Session is inactive, closed, expired, or belongs to another token."""
 
 
-class StudentNotAuthenticatedError(AttendanceError):
-    """Raised when attendance is submitted without a valid authenticated student."""
+class NotEligibleError(AttendanceError):
+    """Authenticated student is not enrolled in the session's course."""
 
 
-class StudentNotEligibleError(AttendanceError):
-    """Raised when a student is not eligible for the attendance session."""
+class AlreadyMarkedError(AttendanceError):
+    """The student already has an attendance record in this session."""
 
 
-class InvalidAttendanceTokenError(AttendanceError):
-    """Raised when a QR token is invalid, expired, or mismatched."""
-
-
-class DuplicateAttendanceError(AttendanceError):
-    """Raised when the student already has an attendance record for the session."""
-
-
-class AttendanceSessionExpiredError(AttendanceError):
-    """Raised when a session is expired and no new submissions are allowed."""
-
-
-class AttendanceCorrectionError(AttendanceError):
-    """Raised when an attendance correction is attempted without a valid audit trail."""
+class TokenStudentMismatchError(AttendanceError):
+    """A checkpoint QR cannot be used to credit a different student."""
 
 
 class LecturerNotAuthorizedError(AttendanceError):
-    """Raised when a lecturer lacks permission for an attendance operation."""
+    """Lecturer is not allowed to select checkpoints or correct attendance."""
 
 
-class AttendanceSessionLike(Protocol):
-    id: Any
-    is_active: Any
-    expires_at: Any
-    course_id: Any
-    class_id: Any
-    checkpoint_ids: Any
-    started_at: Any
-    status: Any
-    started_by_id: Any
-    closed_at: Any
-
-    def save(self) -> Any:
-        ...
+class CheckpointNotEligibleError(AttendanceError):
+    """A selected checkpoint student is not eligible for this class."""
 
 
-class AttendanceRecordLike(Protocol):
-    id: Any
-    session_id: Any
-    student_id: Any
-    status: Any
-    scanned_at: Any
-    corrected_at: Any
-    correction_note: Any
-    is_corrected: Any
-    source_token: Any
-
-    def save(self) -> Any:
-        ...
+class CorrectionAuthorizationError(AttendanceError):
+    """An attendance correction lacks lecturer authority or an audit reason."""
 
 
-class StudentLike(Protocol):
-    id: Any
-    is_authenticated: Any
-    is_active: Any
+def _session_is_active(session: AttendanceSession, now: Optional[datetime] = None) -> bool:
+    now = now or timezone.now()
+    return session.status == AttendanceSession.Status.ACTIVE and session.expires_at > now
 
 
-class CheckpointLike(Protocol):
-    id: Any
-    student_id: Any
-    session_id: Any
-    is_confirmed: Any
+def _ensure_active_matching_session(session: AttendanceSession, token_session_id: str) -> None:
+    if str(session.id) != str(token_session_id) or not _session_is_active(session):
+        raise SessionExpiredError("Attendance session is inactive, expired, or does not match this token")
 
 
-def select_checkpoints(
-    *,
-    lecturer_id: Any,
-    session: Any,
-    checkpoint_student_ids: Iterable[Any],
-    eligibility_checker: Any,
-    lecturer_authorizer: Optional[Any] = None,
-) -> List[Any]:
-    """Validate the temporary checkpoint selection for an active session."""
-    # BR-050: every selected checkpoint student must be eligible for the
-    # session's class/course.
-    if lecturer_id is None:
-        raise LecturerNotAuthorizedError("Lecturer identity is required")
-    _validate_session_active(session)
-    if lecturer_authorizer is not None and not bool(
-        lecturer_authorizer(lecturer_id=lecturer_id, session=session)
-    ):
-        raise LecturerNotAuthorizedError(
-            "Lecturer is not authorized to manage this attendance session"
-        )
-    elif lecturer_authorizer is None:
-        raise LecturerNotAuthorizedError(
-            "A lecturer authorization check is required for checkpoint selection"
-        )
-
-    selected_ids = list(dict.fromkeys(checkpoint_student_ids or []))
-    if not selected_ids:
-        raise AttendanceError("At least one checkpoint student is required")
-
-    for student_id in selected_ids:
-        _validate_student_eligibility(
-            student_id,
-            session,
-            eligibility_checker=eligibility_checker,
-        )
-
-    # BR-051: the lecturer's selection is the backend representation of their
-    # physical-presence confirmation; the service cannot verify physical presence.
-    # BR-052: no spatial distribution rule is hard-coded without spatial data.
-    # BR-053: this function returns IDs for this session only and changes no role.
-    return selected_ids
-
-
-def _session_is_active(session: Any) -> bool:
-    if session is None:
-        return False
-
-    active_flag = get_attr(session, "is_active", "active")
-    if active_flag is not None:
-        return bool(active_flag)
-
-    status = get_attr(session, "status", "state")
-    if status is not None:
-        status_text = str(status).lower()
-        if status_text in {"active", "open", "in_progress", "running"}:
-            return True
-        if status_text in {"closed", "expired", "completed", "cancelled"}:
-            return False
-
-    expires_at = get_attr(session, "expires_at", "ends_at", "session_expires_at")
-    if expires_at is not None:
-        try:
-            return utc_now() < expires_at
-        except TypeError:
-            return False
-
-    return False
-
-
-def _attendance_exists_for_session(
-    session_id: Any,
-    student_id: Any,
-    *,
-    AttendanceRecordModel: type[AttendanceRecordLike],
-) -> bool:
-    """Return whether a student already has one attendance record for the session."""
-    try:
-        queryset = AttendanceRecordModel.objects.filter(session_id=session_id, student_id=student_id)
-        return queryset.exists()
-    except AttributeError:
-        records = list(AttendanceRecordModel.objects.filter(session_id=session_id, student_id=student_id))
-        return bool(records)
-
-
-def _validate_authenticated_student(student: Optional[StudentLike]) -> None:
-    # BR-032, BR-063: attendance must always be associated with an authenticated
-    # account, not just a QR or raw student id.
-    if student is None:
-        raise StudentNotAuthenticatedError("Student must be authenticated to record attendance")
-
-    is_authenticated = get_attr(student, "is_authenticated", "authenticated")
-    if is_authenticated is not True:
-        raise StudentNotAuthenticatedError("Student must be authenticated to record attendance")
-
-    is_active = get_attr(student, "is_active", "active")
-    if is_active is not True:
-        raise StudentNotAuthenticatedError("Student account is not active")
-
-
-def _validate_student_eligibility(
-    student_id: Any,
-    session: Any,
-    *,
-    eligibility_checker: Any,
-) -> None:
-    # BR-031, BR-050: only eligible students may attend or serve as checkpoint
-    # students for an active session.
-    if eligibility_checker is None:
-        raise StudentNotEligibleError("Eligibility checker is required")
-
-    try:
-        eligible = eligibility_checker(student_id=student_id, session=session)
-    except TypeError:
-        eligible = eligibility_checker(student_id, session)
-
-    if not bool(eligible):
-        raise StudentNotEligibleError("Student is not eligible for this session")
-
-
-def _validate_session_active(session: Any) -> None:
-    # BR-030, BR-036, BR-041: sessions must be active and not yet expired.
-    if session is None:
-        raise SessionNotActiveError("Attendance session was not found")
-
+def select_checkpoints(*, lecturer: User, session: AttendanceSession, student_ids: Iterable[Any]) -> List[AttendanceCheckpoint]:
+    """Create session-scoped checkpoints after server-side eligibility checks."""
+    if lecturer is None or session is None or str(lecturer.id) != str(session.lecturer_id):
+        raise LecturerNotAuthorizedError("Only the session lecturer can select checkpoints")
     if not _session_is_active(session):
-        raise AttendanceSessionExpiredError("Attendance session has expired or is no longer active")
+        raise SessionExpiredError("Cannot select checkpoints for an inactive session")
 
+    selected = list(dict.fromkeys(student_ids or []))
+    if not selected:
+        raise CheckpointNotEligibleError("At least one eligible checkpoint student is required")
 
-def _validate_token(
-    token: Optional[str],
-    *,
-    session: Any,
-    student_id: Any,
-    token_validator: Any,
-) -> Dict[str, Any]:
-    # BR-033, BR-034, BR-037, BR-038, BR-062: tokens must be valid, temporary,
-    # session-bound, and expired tokens are rejected.
-    if token_validator is None:
-        raise InvalidAttendanceTokenError("QR token validator is required")
-
-    if token is None or not str(token).strip():
-        raise InvalidAttendanceTokenError("Attendance token is required")
-
-    try:
-        payload = token_validator(
-            token,
-            expected_session_id=getattr(session, "id", None),
-            expected_student_id=student_id,
+    checkpoints: List[AttendanceCheckpoint] = []
+    for student_id in selected:
+        eligible = is_student_eligible_for_class(
+            student_id,
+            class_id=session.class_session_id,
+            ClassModel=ClassSession,
+            EnrollmentModel=Enrollment,
         )
-    except TypeError:
-        payload = token_validator(token, session.id, student_id)
-
-    if not isinstance(payload, dict):
-        raise InvalidAttendanceTokenError("Attendance token payload is invalid")
-    return payload
-
-
-def _assert_self_marking(student_id: Any, token_payload: Dict[str, Any]) -> None:
-    # BR-039, BR-063: the token may not authorize a student to mark another
-    # authenticated student as present.
-    token_student_id = token_payload.get("student_id")
-    if token_student_id is not None and str(token_student_id) != str(student_id):
-        raise InvalidAttendanceTokenError("Token is for a different student and cannot be used here")
+        if not eligible:
+            raise CheckpointNotEligibleError("Checkpoint student is not eligible for this class")
+        checkpoint, _ = AttendanceCheckpoint.objects.get_or_create(
+            attendance_session=session, student_id=student_id
+        )
+        checkpoints.append(checkpoint)
+    return checkpoints
 
 
-def _assert_unique_attendance(
-    session_id: Any,
-    student_id: Any,
-    *,
-    AttendanceRecordModel: type[AttendanceRecordLike],
-) -> None:
-    # BR-040: one attendance record per student per session, enforced in the data
-    # layer as a unique constraint and checked here before creation.
-    if _attendance_exists_for_session(session_id, student_id, AttendanceRecordModel=AttendanceRecordModel):
-        raise DuplicateAttendanceError("Student already has an attendance record for this session")
+def generate_checkpoint_token(*, lecturer: User, checkpoint: AttendanceCheckpoint) -> str:
+    """Issue a ten-second token only for a valid, session-scoped checkpoint."""
+    session = checkpoint.attendance_session
+    if str(lecturer.id) != str(session.lecturer_id):
+        raise LecturerNotAuthorizedError("Only the session lecturer can issue checkpoint tokens")
+    if not _session_is_active(session):
+        raise SessionExpiredError("Cannot issue a token for an inactive session")
+    return generate_token(checkpoint_id=checkpoint.id, session_id=session.id)
 
 
-def _build_audit_note(action: str, *, session_id: Any, student_id: Any, actor_id: Any, reason: Optional[str] = None) -> str:
-    note = f"{action}: session={session_id}, student={student_id}, actor={actor_id}"
-    if reason:
-        note = f"{note}; reason={reason}"
-    return note
+def scan_attendance(*, authenticated_student: User, token: str) -> AttendanceRecord:
+    """Consume one QR token and create exactly one authenticated attendance record.
 
-
-def submit_attendance(
-    *,
-    student: Optional[StudentLike],
-    session: Any,
-    token: Optional[str],
-    student_id: Any,
-    session_id: Any,
-    token_validator: Any,
-    eligibility_checker: Any,
-    AttendanceRecordModel: type[AttendanceRecordLike],
-    audit_logger: Optional[Any] = None,
-    actor_id: Optional[Any] = None,
-) -> AttendanceRecordLike:
-    """Submit a student attendance record for an active attendance session.
-
-    The function is intentionally framework-agnostic: it validates the session,
-    the authenticated student, the session-bound QR token, and the eligibility
-    state before writing a single attendance record.
+    The ordered checks mirror BR-033/038/036/037/031/040.  Token consumption
+    is atomic in the cache and database uniqueness is the final race defense.
     """
-    _validate_authenticated_student(student)
-    authenticated_id = get_attr(student, "id", "student_id")
-    if authenticated_id is None or str(authenticated_id) != str(student_id):
-        raise StudentNotAuthenticatedError(
-            "Attendance must be submitted for the authenticated student"
+    if authenticated_student is None or not authenticated_student.is_authenticated:
+        raise NotEligibleError("An authenticated student account is required")
+    if authenticated_student.role != User.Role.STUDENT:
+        raise NotEligibleError("Only student accounts can scan attendance")
+
+    # 1–2. Missing/expired and replayed tokens are named token exceptions.
+    payload = consume_token(token)
+
+    with transaction.atomic():
+        checkpoint = AttendanceCheckpoint.objects.select_related("attendance_session").filter(
+            id=payload.get("checkpoint_id")
+        ).first()
+        if checkpoint is None:
+            raise InvalidTokenError("Attendance checkpoint does not exist")
+
+        # Lock the session so concurrent close/expiry operations cannot interleave
+        # between validation and record insertion on PostgreSQL.
+        session = AttendanceSession.objects.select_for_update().filter(id=checkpoint.attendance_session_id).first()
+        if session is None:
+            raise SessionExpiredError("Attendance session no longer exists")
+        _ensure_active_matching_session(session, payload.get("session_id", ""))
+        if str(checkpoint.attendance_session_id) != str(session.id):
+            raise SessionExpiredError("Checkpoint belongs to a different attendance session")
+
+        # This binding defeats screenshot sharing: a checkpoint token only credits
+        # the exact student selected for that checkpoint, never an arbitrary peer.
+        if str(checkpoint.student_id) != str(authenticated_student.id):
+            raise TokenStudentMismatchError("QR token was issued for another student")
+
+        eligible = is_student_eligible_for_class(
+            authenticated_student.id,
+            class_id=session.class_session_id,
+            ClassModel=ClassSession,
+            EnrollmentModel=Enrollment,
         )
-    if session_id is None or str(session_id) != str(getattr(session, "id", None)):
-        raise AttendanceError("Attendance session id does not match the active session")
-    _validate_session_active(session)
-    _validate_student_eligibility(student_id, session, eligibility_checker=eligibility_checker)
-    payload = _validate_token(token, session=session, student_id=student_id, token_validator=token_validator)
-    _assert_self_marking(student_id, payload)
-    _assert_unique_attendance(session_id, student_id, AttendanceRecordModel=AttendanceRecordModel)
+        if not eligible:
+            raise NotEligibleError("Student is not eligible for this class")
 
-    record = AttendanceRecordModel()
-    if hasattr(record, "session_id"):
-        record.session_id = session_id
-    if hasattr(record, "student_id"):
-        record.student_id = student_id
-    if hasattr(record, "status"):
-        record.status = "present"
-    if hasattr(record, "scanned_at"):
-        record.scanned_at = utc_now()
-    if hasattr(record, "source_token"):
-        record.source_token = token
+        if AttendanceRecord.objects.filter(
+            attendance_session=session, student=authenticated_student
+        ).exists():
+            raise AlreadyMarkedError("Student is already marked for this session")
 
-    record.save()
+        try:
+            record = AttendanceRecord.objects.create(
+                attendance_session=session,
+                student=authenticated_student,
+                checkpoint=checkpoint,
+            )
+        except IntegrityError as exc:
+            # BR-040 final race defense: UNIQUE(session, student) remains
+            # authoritative if two transactions passed the fast-fail query.
+            raise AlreadyMarkedError("Student is already marked for this session") from exc
 
-    if audit_logger is not None:
-        audit_logger(
-            action="attendance_submitted",
-            session_id=session_id,
-            student_id=student_id,
-            actor_id=actor_id or student_id,
-            note=_build_audit_note(
-                "attendance_submitted",
-                session_id=session_id,
-                student_id=student_id,
-                actor_id=actor_id or student_id,
-            ),
+        write_audit_entry(
+            action="attendance_recorded",
+            resource_type="attendance_record",
+            resource_id=record.id,
+            actor_id=authenticated_student.id,
+            details={"session_id": str(session.id), "checkpoint_id": str(checkpoint.id)},
         )
-
     return record
 
 
-def create_checkpoint_token(
-    *,
-    lecturer_id: Any,
-    student: Optional[StudentLike],
-    session: Any,
-    checkpoint_student_id: Any,
-    token_generator: Any,
-    eligibility_checker: Any,
-    checkpoint_model: Optional[type[CheckpointLike]] = None,
-    conference_note: Optional[str] = None,
-    lecturer_authorizer: Optional[Any] = None,
-) -> str:
-    """Generate a QR token for a checkpoint student after confirmation.
-
-    The lecturer is responsible for confirming the checkpoint student is present
-    in the classroom; the backend enforces the eligibility of the selected
-    student, not whether the lecturer made the physical verification.
-    """
-    # BR-050, BR-051, BR-063: only eligible students are selected and the token is
-    # tied to the authenticated lecturer's attendance session.
-    if lecturer_id is None:
-        raise StudentNotAuthenticatedError("Lecturer identity is required")
-    if lecturer_authorizer is None:
-        raise StudentNotAuthenticatedError(
-            "A lecturer authorization check is required for checkpoint tokens"
+def correct_attendance(*, record: AttendanceRecord, lecturer: User, reason: str) -> AttendanceCorrection:
+    """Append a correction event; never silently overwrite original attendance."""
+    if not reason or not reason.strip():
+        raise CorrectionAuthorizationError("A correction reason is required")
+    if str(record.attendance_session.lecturer_id) != str(lecturer.id):
+        raise CorrectionAuthorizationError("Only the session lecturer can correct attendance")
+    with transaction.atomic():
+        correction = AttendanceCorrection.objects.create(
+            attendance_record=record, corrected_by=lecturer, reason=reason.strip()
         )
-    if not bool(lecturer_authorizer(lecturer_id=lecturer_id, session=session)):
-        raise StudentNotAuthenticatedError(
-            "Lecturer is not authorized to manage this attendance session"
+        write_audit_entry(
+            action="attendance_corrected",
+            resource_type="attendance_record",
+            resource_id=record.id,
+            actor_id=lecturer.id,
+            details={"correction_id": correction.id, "reason": correction.reason},
         )
-
-    _validate_authenticated_student(student)
-    _validate_session_active(session)
-    _validate_student_eligibility(checkpoint_student_id, session, eligibility_checker=eligibility_checker)
-
-    if checkpoint_model is not None:
-        checkpoint = checkpoint_model()
-        if hasattr(checkpoint, "session_id"):
-            checkpoint.session_id = getattr(session, "id", None)
-        if hasattr(checkpoint, "student_id"):
-            checkpoint.student_id = checkpoint_student_id
-        if hasattr(checkpoint, "is_confirmed"):
-            checkpoint.is_confirmed = True
-        if conference_note is not None and hasattr(checkpoint, "note"):
-            checkpoint.note = conference_note
-        checkpoint.save()
-
-    if token_generator is None:
-        raise InvalidAttendanceTokenError("Token generator is required")
-
-    return token_generator(session_id=getattr(session, "id", None), student_id=checkpoint_student_id)
+    return correction
 
 
-def correct_attendance(
-    *,
-    actor_id: Any,
-    session_id: Any,
-    student_id: Any,
-    new_status: str,
-    attendance_record: Optional[AttendanceRecordLike],
-    audit_logger: Any,
-    reason: Optional[str] = None,
-    authorization_checker: Optional[Any] = None,
-) -> AttendanceRecordLike:
-    """Apply an authorized correction while retaining a traceable audit record."""
-    # BR-042: corrections must not silently overwrite history; any correction must
-    # log an explicit audit trail.
-    if attendance_record is None:
-        raise AttendanceCorrectionError("Attendance record not found")
-    if actor_id is None:
-        raise AttendanceCorrectionError("Actor is required for attendance correction")
-    if new_status not in {"present", "absent", "late", "excused"}:
-        raise AttendanceCorrectionError("Corrected attendance status is required")
-    if authorization_checker is None:
-        raise AttendanceCorrectionError("An attendance correction authorization check is required")
-    try:
-        authorized = authorization_checker(
-            actor_id=actor_id,
-            session_id=session_id,
-            student_id=student_id,
-        )
-    except TypeError:
-        authorized = authorization_checker(actor_id, session_id, student_id)
-    if not bool(authorized):
-        raise AttendanceCorrectionError("Actor is not authorized to correct attendance")
-    if audit_logger is None:
-        raise AttendanceCorrectionError("An audit logger is required for corrections")
-
-    if hasattr(attendance_record, "status"):
-        attendance_record.status = new_status
-    if hasattr(attendance_record, "corrected_at"):
-        attendance_record.corrected_at = utc_now()
-    if hasattr(attendance_record, "correction_note"):
-        attendance_record.correction_note = reason or "attendance corrected"
-    if hasattr(attendance_record, "is_corrected"):
-        attendance_record.is_corrected = True
-
-    attendance_record.save()
-    audit_logger(
-        action="attendance_corrected",
-        session_id=session_id,
-        student_id=student_id,
-        actor_id=actor_id,
-        note=_build_audit_note("attendance_corrected", session_id=session_id, student_id=student_id, actor_id=actor_id, reason=reason),
-    )
-    return attendance_record
-
-
-def flag_suspicious_activity(
-    *,
-    actor_id: Any,
-    session_id: Any,
-    student_id: Optional[Any] = None,
-    details: Optional[str] = None,
-    risk_flags: Optional[Sequence[str]] = None,
-    audit_logger: Any,
-) -> Dict[str, Any]:
-    """Create a reviewable suspicious-activity record without assuming misconduct."""
-    # BR-064: suspicious activity is informational and reviewable, not automatic
-    # misconduct or a permanent accusation.
-    if actor_id is None:
-        raise AttendanceCorrectionError("Actor is required for suspicious activity review")
-
-    normalized_flags = list(risk_flags or [])
-    payload = {
-        "session_id": session_id,
-        "student_id": student_id,
-        "actor_id": actor_id,
-        "details": details or "suspicious attendance activity flagged for review",
-        "risk_flags": normalized_flags,
-        "status": "review_required",
-    }
-    audit_logger(
+def flag_suspicious_activity(*, actor_id: Any, reason: str, metadata: Optional[dict[str, Any]] = None) -> None:
+    """Flag for review only; callers must never use this to block a valid scan."""
+    write_audit_entry(
         action="attendance_suspicious_activity",
-        session_id=session_id,
-        student_id=student_id,
+        resource_type="attendance_security_event",
+        resource_id=f"{actor_id}:{timezone.now().isoformat()}",
         actor_id=actor_id,
-        note=_build_audit_note("attendance_suspicious_activity", session_id=session_id, student_id=student_id, actor_id=actor_id, reason=payload["details"]),
+        details={"reason": reason, **(metadata or {})},
     )
-    return payload
+
+
+SUSPICIOUS_FAILURE_THRESHOLD = 3
+SUSPICIOUS_FAILURE_WINDOW_SECONDS = 60
+
+
+def evaluate_repeated_failure(
+    *,
+    cache_backend: Any,
+    actor_id: Any,
+    failure_code: str,
+    request_ip: Optional[str] = None,
+) -> bool:
+    """BR-064: track repeated scan failures and flag suspicious patterns.
+
+    Returns True if a suspicious activity flag was raised.
+    This function decides when to flag — callers only supply the cache
+    backend and identifiers; the threshold is owned by this service.
+    """
+    key = f"attendance:scan-failures:{actor_id}:{failure_code}"
+    cache_backend.add(key, 0, timeout=SUSPICIOUS_FAILURE_WINDOW_SECONDS)
+    try:
+        failures = cache_backend.incr(key)
+    except ValueError:
+        failures = 1
+
+    if failures >= SUSPICIOUS_FAILURE_THRESHOLD:
+        metadata: dict[str, Any] = {"failure_code": failure_code}
+        if request_ip:
+            metadata["request_ip"] = request_ip
+        flag_suspicious_activity(
+            actor_id=actor_id,
+            reason="repeated_invalid_attendance_scan",
+            metadata=metadata,
+        )
+        return True
+    return False

@@ -124,7 +124,7 @@ def register_account(
     try:
         account = manager.create_user(
             email=str(email).strip().lower(),
-            username=str(username).strip(),
+            username=str(username).strip().lower(),
             first_name=str(first_name).strip(),
             last_name=str(last_name).strip(),
             password=password,
@@ -133,7 +133,7 @@ def register_account(
         # Fallback for Protocol-based callers that provide custom models.
         account = AccountModel()
         account.email = str(email).strip().lower()
-        account.username = str(username).strip()
+        account.username = str(username).strip().lower()
         account.first_name = str(first_name).strip()
         account.last_name = str(last_name).strip()
         account.role = DEFAULT_ROLE

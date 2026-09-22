@@ -11,14 +11,43 @@ class RegisterSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, min_length=8)
 
     def validate_username(self, value):
-        if User.objects.filter(username=value).exists():
+        normalized = value.strip().lower()
+        if User.objects.filter(username=normalized).exists():
             raise serializers.ValidationError("This username is already taken.")
-        return value
+        return normalized
 
 
 class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    """Accept login via email, matricule, or staffid (at least one required).
+
+    The ``identifier`` field is the flexible login credential.  The frontend
+    sends whichever the user typed into the login field.  The view resolves it
+    to the matching User account.
+    """
+    identifier = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Email, matricule, or staffid.",
+    )
+    email = serializers.EmailField(required=False, allow_blank=True)
+    matricule = serializers.CharField(required=False, allow_blank=True)
+    staffid = serializers.CharField(required=False, allow_blank=True)
     password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        # Normalise: accept any of the three identifiers or a bare "identifier".
+        value = (
+            attrs.get("identifier", "").strip()
+            or attrs.get("email", "").strip()
+            or attrs.get("matricule", "").strip()
+            or attrs.get("staffid", "").strip()
+        )
+        if not value:
+            raise serializers.ValidationError(
+                "Provide an email, matricule, or staffid to log in."
+            )
+        attrs["login_identifier"] = value
+        return attrs
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -30,6 +59,8 @@ class UserSerializer(serializers.ModelSerializer):
             "username",
             "first_name",
             "last_name",
+            "matricule",
+            "staffid",
             "role",
             "faculty",
             "department",

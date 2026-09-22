@@ -1,285 +1,122 @@
-"""QR token utilities for ephemeral attendance sessions.
+"""One-time QR token mechanics for attendance.
 
-This module is intentionally mechanics-only: it handles token generation,
-validation, rotation, and cache-backed TTL behavior without making academic
-permission or attendance business decisions.
-
-Business rules enforced via the token mechanics:
-- BR-033: QR attendance requires a valid temporary token.
-- BR-034: QR tokens are never permanent identifiers.
-- BR-035: QR token lifetime is configurable and short-lived.
-- BR-036: Attendance session TTL is kept short-lived.
-- BR-037: Tokens must match the active attendance session.
-- BR-038: Expired QR tokens cannot be reused.
-- BR-041: Session expiry blocks new attendance submissions.
-- BR-060: Students must not keep permanent QR identities.
-- BR-061: QR tokens rotate regularly during the active attendance window.
+This module deliberately makes no eligibility or authorization decision.  Its
+job is limited to issuing short-lived random tokens and atomically consuming
+them exactly once.
 """
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
 import json
-import os
-import time
-from datetime import datetime, timedelta
+import secrets
+import threading
+from datetime import timedelta
 from typing import Any, Dict, Optional
+
+from django.conf import settings
+from django.core.cache import cache
 
 from core.common import utc_now
 
-_DEFAULT_QR_TOKEN_TTL_SECONDS = 10
-_DEFAULT_ATTENDANCE_SESSION_TTL_SECONDS = 60
-_MEMORY_TOKENS: Dict[str, Dict[str, Any]] = {}
-
 
 class QRTokenError(ValueError):
-    """Base error for QR token validation failures."""
-
-
-class InvalidTokenError(QRTokenError):
-    """Raised when a QR token is malformed or unsigned incorrectly."""
+    """Base error for token mechanics."""
 
 
 class TokenExpiredError(QRTokenError):
-    """Raised when a QR token has expired and cannot be used anymore."""
+    """The token is absent or its TTL has elapsed (BR-033)."""
 
 
-class TokenSessionMismatchError(QRTokenError):
-    """Raised when a token belongs to a different attendance session."""
+class TokenAlreadyUsedError(QRTokenError):
+    """The token has already been atomically consumed (BR-038)."""
 
 
-class TokenStudentMismatchError(QRTokenError):
-    """Raised when a token is valid but intended for a different student."""
+class InvalidTokenError(QRTokenError):
+    """The token payload is malformed or does not belong to this system."""
 
 
-def _env_int(name: str, default: int) -> int:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _canonical_json(value: Dict[str, Any]) -> bytes:
-    return json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8")
-
-
-def _get_secret_key(secret_key: Optional[str] = None) -> bytes:
-    key = secret_key or os.getenv("QR_TOKEN_SECRET_KEY")
-    if not key:
-        raise InvalidTokenError("QR token secret key is not configured")
-    return key.encode("utf-8")
-
-
-def _get_cache_backend() -> Any:
-    try:
-        from django.core.cache import cache
-
-        return cache
-    except Exception:  # pragma: no cover - Django is optional in stripped-down tests
-        return _MEMORY_TOKENS
+_LOCAL_TOKEN_LOCK = threading.Lock()
+_LOCAL_USED_KEYS: set[str] = set()
 
 
 def get_qr_token_ttl_seconds() -> int:
-    """Return the configured QR token TTL in seconds.
-
-    The exact TTL is runtime-configurable and defaults to 10 seconds per the
-    business rule set.
-    """
-    # BR-035: Token lifetime must be configurable and short-lived.
-    return _env_int("QR_TOKEN_TTL_SECONDS", _DEFAULT_QR_TOKEN_TTL_SECONDS)
+    """Return the confirmed BR-035 default: ten seconds."""
+    ttl = int(getattr(settings, "QR_TOKEN_TTL_SECONDS", 10))
+    if ttl <= 0:
+        raise InvalidTokenError("QR token TTL must be positive")
+    return ttl
 
 
-def get_attendance_session_ttl_seconds() -> int:
-    """Return the configured attendance session TTL in seconds."""
-    # BR-036: Attendance sessions must be short-lived and configurable.
-    return _env_int(
-        "ATTENDANCE_SESSION_TTL_SECONDS",
-        _DEFAULT_ATTENDANCE_SESSION_TTL_SECONDS,
-    )
+def _key(token: str) -> str:
+    return f"attendance:qr:{token}"
 
 
-def _serialize_payload(payload: Dict[str, Any]) -> str:
-    body = base64.urlsafe_b64encode(_canonical_json(payload)).decode("ascii")
-    return body.rstrip("=")
+def _redis_client() -> Optional[Any]:
+    """Return a raw Redis client only for Django's Redis cache backend."""
+    backend = getattr(cache, "_cache", None)
+    if backend is None or not hasattr(backend, "get_client"):
+        return None
+    return backend.get_client(write=True)
 
 
-def _deserialize_payload(
-    token: str,
-    *,
-    secret_key: Optional[str] = None,
-) -> Dict[str, Any]:
-    try:
-        token_part, signature = token.split(".", 1)
-    except ValueError as exc:
-        raise InvalidTokenError("Token format is invalid") from exc
+def generate_token(*, checkpoint_id: Any, session_id: Any) -> str:
+    """Issue a cryptographically random, TTL-bound checkpoint token."""
+    if checkpoint_id is None or session_id is None:
+        raise InvalidTokenError("Checkpoint and session are required")
 
-    pad = "=" * ((4 - len(token_part) % 4) % 4)
-    try:
-        payload_bytes = base64.urlsafe_b64decode((token_part + pad).encode("ascii"))
-    except Exception as exc:  # pragma: no cover - invalid base64 is rejected
-        raise InvalidTokenError("Token payload is not valid base64") from exc
-
-    try:
-        payload = json.loads(payload_bytes.decode("utf-8"))
-    except (TypeError, ValueError) as exc:
-        raise InvalidTokenError("Token payload is not valid JSON") from exc
-
-    if not isinstance(payload, dict):
-        raise InvalidTokenError("Token payload must be an object")
-
-    expected_signature = hmac.new(
-        _get_secret_key(secret_key),
-        token_part.encode("ascii"),
-        hashlib.sha256,
-    ).hexdigest()
-    if not hmac.compare_digest(signature, expected_signature):
-        raise InvalidTokenError("Token signature is invalid")
-
-    return payload
-
-
-def _token_store_key(token: str) -> str:
-    return f"qr_token:{token}"
-
-
-def store_qr_token(
-    token: str,
-    *,
-    session_id: Any,
-    student_id: Any,
-    ttl_seconds: Optional[int] = None,
-) -> str:
-    """Persist a token in the cache store with a strict TTL.
-
-    The persistence layer is intentionally backend-agnostic; Django cache is used
-    when available, otherwise an in-memory store is used for tests.
-    """
-    # BR-033, BR-034, BR-035, BR-038: token records are temporary, not permanent,
-    # and expire automatically after a short TTL.
-    cache = _get_cache_backend()
-    timeout = ttl_seconds if ttl_seconds is not None else get_qr_token_ttl_seconds()
-    value = {
-        "session_id": session_id,
-        "student_id": student_id,
-        "expires_at": (utc_now() + timedelta(seconds=timeout)).isoformat(),
-        "issued_at": utc_now().isoformat(),
-    }
-
-    if hasattr(cache, "set"):
-        cache.set(_token_store_key(token), value, timeout=timeout)
-        return token
-
-    _MEMORY_TOKENS[_token_store_key(token)] = value
+    token = secrets.token_urlsafe(32)
+    payload = {"checkpoint_id": str(checkpoint_id), "session_id": str(session_id)}
+    ttl = get_qr_token_ttl_seconds()
+    key = _key(token)
+    client = _redis_client()
+    if client is not None:
+        # Redis SET with NX and expiry avoids a cache serialization dependency.
+        if not client.set(key, json.dumps(payload), ex=ttl, nx=True):  # pragma: no cover - astronomically unlikely
+            return generate_token(checkpoint_id=checkpoint_id, session_id=session_id)
+    else:
+        # Development/test simulation only.  The lock provides atomicity in one
+        # process; production must use Redis for multi-worker atomicity.
+        cache.set(key, payload, timeout=ttl)
     return token
 
 
-def generate_qr_token(
-    *,
-    session_id: Any,
-    student_id: Any,
-    ttl_seconds: Optional[int] = None,
-    secret_key: Optional[str] = None,
-) -> str:
-    """Generate a signed, time-bound attendance QR token."""
-    # BR-033, BR-034, BR-060, BR-061: the token is ephemeral, signed, and rotates
-    # with a fresh nonce to avoid permanent QR identity reuse.
-    issued_at = utc_now()
-    effective_ttl = ttl_seconds if ttl_seconds is not None else get_qr_token_ttl_seconds()
-    expires_at = issued_at + timedelta(seconds=effective_ttl)
-    payload = {
-        "session_id": str(session_id),
-        "student_id": str(student_id),
-        "issued_at": issued_at.isoformat(),
-        "expires_at": expires_at.isoformat(),
-        "nonce": hashlib.sha256(f"{time.time_ns()}:{session_id}:{student_id}".encode()).hexdigest(),
-    }
-    token_body = _serialize_payload(payload)
-    signature = hmac.new(_get_secret_key(secret_key), token_body.encode("ascii"), hashlib.sha256).hexdigest()
-    token = f"{token_body}.{signature}"
-    store_qr_token(token, session_id=session_id, student_id=student_id, ttl_seconds=effective_ttl)
-    return token
+def consume_token(token: str) -> Dict[str, str]:
+    """Atomically retrieve and invalidate a one-time token.
 
-
-def validate_qr_token(
-    token: str,
-    *,
-    expected_session_id: Optional[Any] = None,
-    expected_student_id: Optional[Any] = None,
-    now: Optional[datetime] = None,
-    secret_key: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Validate a QR token, including TTL and session/student matching.
-
-    This helper is intentionally narrow: it enforces token integrity and expiry,
-    while view/service code decides whether the token is allowed for a given
-    student and attendance session.
+    Redis uses one Lua operation (GET then DEL in one server-side command).
+    The local development cache uses one process lock.  There is deliberately
+    no read-then-write path that could let two simultaneous scans succeed.
     """
-    # BR-033, BR-037, BR-038, BR-041: active session validation and expiry are
-    # enforced by token mechanics before any attendance submission is considered.
     if not token or not isinstance(token, str):
-        raise InvalidTokenError("Token is required")
+        raise TokenExpiredError("Attendance token is missing or expired")
 
-    payload = _deserialize_payload(token, secret_key=secret_key)
-    expires_at_raw = payload.get("expires_at")
-    if not expires_at_raw:
-        raise InvalidTokenError("Token has no expiration timestamp")
+    key = _key(token)
+    client = _redis_client()
+    if client is not None:
+        raw = client.eval(
+            "local value = redis.call('GET', KEYS[1]); "
+            "if value then redis.call('DEL', KEYS[1]); end; return value",
+            1,
+            key,
+        )
+        if raw is None:
+            raise TokenAlreadyUsedError("Attendance token was already used or expired")
+        try:
+            return json.loads(raw)
+        except (TypeError, ValueError) as exc:  # pragma: no cover - cache corruption
+            raise InvalidTokenError("Attendance token payload is invalid") from exc
 
-    now_value = now or utc_now()
-    expires_at = datetime.fromisoformat(expires_at_raw)
-    if now_value >= expires_at:
-        raise TokenExpiredError("QR token has expired")
-
-    cache = _get_cache_backend()
-    if hasattr(cache, "get"):
-        cached = cache.get(_token_store_key(token))
-        if cached is None:
-            raise InvalidTokenError("Token is unknown or was already invalidated")
-        cached_expires = cached.get("expires_at")
-        if cached_expires is not None:
-            cached_dt = datetime.fromisoformat(cached_expires)
-            if now_value >= cached_dt:
-                raise TokenExpiredError("QR token has expired")
-
-    if expected_session_id is not None and str(payload.get("session_id")) != str(expected_session_id):
-        raise TokenSessionMismatchError("QR token does not belong to the expected attendance session")
-
-    if expected_student_id is not None and str(payload.get("student_id")) != str(expected_student_id):
-        raise TokenStudentMismatchError("QR token belongs to a different student")
-
-    return payload
+    with _LOCAL_TOKEN_LOCK:
+        if key in _LOCAL_USED_KEYS:
+            raise TokenAlreadyUsedError("Attendance token was already used")
+        payload = cache.get(key)
+        if payload is None:
+            raise TokenExpiredError("Attendance token is missing or expired")
+        cache.delete(key)
+        _LOCAL_USED_KEYS.add(key)
+        return payload
 
 
-def rotate_qr_token(
-    token: str,
-    *,
-    secret_key: Optional[str] = None,
-    ttl_seconds: Optional[int] = None,
-) -> str:
-    """Create a fresh token from an existing valid token.
-
-    Rotation keeps tokens ephemeral while preserving the same session and
-    student identity for the active attendance window.
-    """
-    # BR-061: QR tokens should rotate regularly during the attendance window.
-    payload = validate_qr_token(token, secret_key=secret_key)
-    new_token = generate_qr_token(
-        session_id=payload["session_id"],
-        student_id=payload["student_id"],
-        ttl_seconds=ttl_seconds if ttl_seconds is not None else get_qr_token_ttl_seconds(),
-        secret_key=secret_key,
-    )
-    return new_token
-
-
-def is_qr_token_active(token: str, *, now: Optional[datetime] = None) -> bool:
-    """Return whether a token is still valid for attendance scanning."""
-    try:
-        validate_qr_token(token, now=now)
-        return True
-    except QRTokenError:
-        return False
+def validate_token(token: str) -> Dict[str, str]:
+    """Backward-compatible public name; validation consumes the token once."""
+    return consume_token(token)
