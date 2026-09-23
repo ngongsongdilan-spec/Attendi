@@ -109,3 +109,43 @@ class AttendanceSecurityTests(TestCase):
                 action="attendance_recorded", resource_type="attendance_record", resource_id=str(record.id)
             ).exists()
         )
+
+
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "attendance-throttle-tests",
+        }
+    }
+)
+class AttendanceScanThrottleTests(TestCase):
+    """POST /attendance/scan/ has its own rate limit (audit item 29 closed).
+
+    ScopedRateThrottle keys on the authenticated student's pk (a fresh UUID
+    per test, so no counter bleed).  The dedicated scope is 20/minute, below
+    the global anon 30/minute budget — so the 21st request proving RATE_LIMITED
+    can only come from the attendance-scan scope, before token validation runs.
+    """
+
+    def setUp(self):
+        self.student = User.objects.create_user(
+            "throttled@example.test", "throttled", "Throt", "Tled", "StrongPass!2026"
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.student)
+
+    def test_scan_hammering_is_throttled_before_the_view_runs(self):
+        url = reverse("attendance:scan")
+        responses = [
+            self.client.post(url, {"token": f"junk-token-{index}"}, format="json")
+            for index in range(21)
+        ]
+        # Requests 1-20 reach the view and fail normally (absent token)...
+        self.assertEqual(responses[0].status_code, 404)
+        self.assertEqual(responses[0].data["error"]["code"], "TOKEN_EXPIRED")
+        # ...the 21st is rejected by the dedicated throttle and never hits
+        # token consumption or the failure counter.
+        throttled = responses[-1]
+        self.assertEqual(throttled.status_code, 429)
+        self.assertEqual(throttled.data["error"]["code"], "RATE_LIMITED")

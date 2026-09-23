@@ -4,8 +4,11 @@
  * Manages the full auth lifecycle:
  *   1. On mount: calls GET /accounts/me/ to restore an existing session.
  *   2. Provides login, logout, register, updateProfile actions.
- *   3. Exposes user, isAuthenticated, isLoading, error state.
- *
+ *   3. Email verification gate: register() does NOT log the user in — it parks
+ *      the credentials in memory-only pendingVerification state and the app
+ *      shows the OTP screen until verifyEmail() succeeds.
+ *   4. Exposes user, isAuthenticated, isLoading, pendingVerification, error.
+
  * @module hooks/useAuth
  */
 
@@ -21,6 +24,7 @@ import { getCsrfTokenFromCookie, normalizeRole } from '../utils/tokenHelpers';
  * @property {string} first_name
  * @property {string} last_name
  * @property {string} role - Backend role: STUDENT | LECTURER | ADMINISTRATOR
+ * @property {boolean} is_email_verified
  * @property {string|null} faculty
  * @property {string|null} department
  * @property {string} created_at
@@ -32,9 +36,13 @@ import { getCsrfTokenFromCookie, normalizeRole } from '../utils/tokenHelpers';
  *   isAuthenticated: boolean,
  *   isLoading: boolean,
  *   error: string|null,
+ *   pendingVerification: {email: string, password: string}|null,
  *   login: (identifier: string, password: string) => Promise<void>,
  *   logout: () => Promise<void>,
  *   register: (data: object) => Promise<void>,
+ *   verifyEmail: (code: string) => Promise<void>,
+ *   resendVerification: () => Promise<void>,
+ *   cancelVerification: () => void,
  *   updateProfile: (data: object) => Promise<void>,
  * }}
  */
@@ -42,6 +50,9 @@ export default function useAuth() {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  // In-memory only: holds the just-registered credentials across the OTP step.
+  // Never written to localStorage/sessionStorage.
+  const [pendingVerification, setPendingVerification] = useState(null);
 
   /** Derive a display-friendly role from the backend role string. */
   const displayRole = user ? normalizeRole(user.role) : null;
@@ -96,7 +107,9 @@ export default function useAuth() {
   }, []);
 
   /**
-   * Register a new account and auto-login.
+   * Register a new account. Login is blocked until the email is verified
+   * (backend enforces ACCOUNT_NOT_VERIFIED), so instead of auto-login we park
+   * the credentials in memory and move the app to the OTP screen.
    * @param {object} data - {email, username, first_name, last_name, password}
    */
   const register = useCallback(async (data) => {
@@ -104,15 +117,58 @@ export default function useAuth() {
     try {
       await authApi.getCsrfToken();
       await authApi.register(data);
-      // Auto-login after registration uses the email as the identifier
-      // (registration has no staffid/matricule yet — those are assigned later).
-      await authApi.login({ identifier: data.email, password: data.password });
-      const userData = await authApi.getCurrentUser();
-      setUser(userData);
+      setPendingVerification({ email: data.email, password: data.password });
     } catch (err) {
       setError(err.message || 'Registration failed');
       throw err;
     }
+  }, []);
+
+  /**
+   * Submit the six-digit code, then complete the original auto-login flow
+   * with the in-memory credentials.
+   * @param {string} code - Six-digit OTP from the verification email.
+   */
+  const verifyEmail = useCallback(async (code) => {
+    setError(null);
+    if (!pendingVerification) {
+      throw new Error('No registration in progress. Please sign up again.');
+    }
+    try {
+      await authApi.verifyEmail({ email: pendingVerification.email, code });
+      await authApi.login({
+        identifier: pendingVerification.email,
+        password: pendingVerification.password,
+      });
+      const userData = await authApi.getCurrentUser();
+      setPendingVerification(null);
+      setUser(userData);
+    } catch (err) {
+      setError(err.message || 'Verification failed');
+      throw err;
+    }
+  }, [pendingVerification]);
+
+  /**
+   * Ask the backend for a fresh code (generic response regardless of state).
+   */
+  const resendVerification = useCallback(async () => {
+    setError(null);
+    if (!pendingVerification) {
+      throw new Error('No registration in progress.');
+    }
+    try {
+      await authApi.resendVerification({ email: pendingVerification.email });
+    } catch (err) {
+      setError(err.message || 'Could not resend the code');
+      throw err;
+    }
+  }, [pendingVerification]);
+
+  /** Abandon the pending registration and return to the login screen. */
+  const cancelVerification = useCallback(() => {
+    setPendingVerification(null);
+    setError(null);
   }, []);
 
   /**
@@ -149,9 +205,13 @@ export default function useAuth() {
     isAuthenticated: !!user,
     isLoading,
     error,
+    pendingVerification,
     login,
     logout,
     register,
+    verifyEmail,
+    resendVerification,
+    cancelVerification,
     updateProfile,
   };
 }

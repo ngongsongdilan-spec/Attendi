@@ -81,6 +81,28 @@ export async function changeRole(data) {
 }
 
 /**
+ * Verify a registration OTP (six-digit code).
+ * The response is intentionally generic for every failure mode on the backend.
+ * @param {{email: string, code: string}} data
+ * @returns {Promise<object>} {message} on success
+ */
+export async function verifyEmail(data) {
+  const response = await apiClient.post(AUTH_ENDPOINTS.VERIFY_EMAIL, data);
+  return response.data;
+}
+
+/**
+ * Request a fresh verification code for an address awaiting verification.
+ * Backend returns the same generic response whether or not the address exists.
+ * @param {{email: string}} data
+ * @returns {Promise<object>} {message}
+ */
+export async function resendVerification(data) {
+  const response = await apiClient.post(AUTH_ENDPOINTS.RESEND_VERIFICATION, data);
+  return response.data;
+}
+
+/**
  * List all users (admin only).
  * @returns {Promise<object[]>} Array of user objects
  */

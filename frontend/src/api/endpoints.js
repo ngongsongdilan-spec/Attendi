@@ -12,6 +12,8 @@ export const AUTH_ENDPOINTS = {
   ME: '/accounts/me/',
   CHANGE_ROLE: '/accounts/change-role/',
   USERS: '/accounts/',
+  VERIFY_EMAIL: '/accounts/verify-email/',
+  RESEND_VERIFICATION: '/accounts/resend-verification/',
 };
 
 export const ATTENDANCE_ENDPOINTS = {

@@ -65,8 +65,9 @@ class UserSerializer(serializers.ModelSerializer):
             "faculty",
             "department",
             "created_at",
+            "is_email_verified",
         ]
-        read_only_fields = ["id", "email", "role", "created_at"]
+        read_only_fields = ["id", "email", "role", "is_email_verified", "created_at"]
 
 
 class ChangeRoleSerializer(serializers.Serializer):

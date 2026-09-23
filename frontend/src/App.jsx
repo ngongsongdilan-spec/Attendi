@@ -20,6 +20,7 @@ import LecturerDashboard from './components/Dashboard/LecturerDashboard';
 import CoordinatorDashboard from './components/Dashboard/CoordinatorDashboard';
 import Login from './components/Auth/Login';
 import SignUp from './components/Auth/SignUp';
+import VerifyEmail from './components/Auth/VerifyEmail';
 import ProfilePage from './components/Profile/ProfilePage';
 import AdminDashboard from './Pages/Admin/AdminDashboard';
 import AdminUsers from './Pages/Admin/AdminUser';
@@ -35,7 +36,7 @@ import TaskList from './components/Tasks/TaskList';
 import useAuth from './hooks/useAuth';
 
 function App() {
-  const { user, isAuthenticated, isLoading, login, logout, register, updateProfile } = useAuth();
+  const { user, isAuthenticated, isLoading, login, logout, register, updateProfile, pendingVerification, verifyEmail, resendVerification, cancelVerification } = useAuth();
   const [showSignUp, setShowSignUp] = useState(false);
 
   if (isLoading) {
@@ -50,6 +51,17 @@ function App() {
   }
 
   if (!isAuthenticated) {
+    // Registration is parked at the OTP step until the email is verified.
+    if (pendingVerification) {
+      return (
+        <VerifyEmail
+          email={pendingVerification.email}
+          onVerify={verifyEmail}
+          onResend={resendVerification}
+          onCancel={cancelVerification}
+        />
+      );
+    }
     if (showSignUp) {
       return <SignUp onSignUp={register} onSwitchToLogin={() => setShowSignUp(false)} />;
     }
@@ -82,7 +94,7 @@ function App() {
                 <Route path="/academic" element={<AcademicCalender />} />
                 <Route path="/announcements" element={<AnnouncementList />} />
                 <Route path="/assessment" element={<ContinuousAssessment />} />
-                <Route path="/attendance" element={<AttendanceDashboard />} />
+                <Route path="/attendance" element={<AttendanceDashboard user={{ ...user, fullName: userName }} />} />
                 <Route path="/contribution" element={<ContributionForm />} />
                 <Route path="/groups" element={<GroupList />} />
                 <Route path="/projects" element={<ProjectsList />} />

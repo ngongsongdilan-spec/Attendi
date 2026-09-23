@@ -79,10 +79,16 @@ apiClient.interceptors.response.use(
       }
 
       if (status === 403) {
-        return Promise.reject(new Error(message || 'You do not have permission to perform this action.'));
+        const err = new Error(message || 'You do not have permission to perform this action.');
+        err.status = status;
+        err.code = data?.error?.code || 'FORBIDDEN';
+        return Promise.reject(err);
       }
 
-      return Promise.reject(new Error(message));
+      const err = new Error(message);
+      err.status = status;
+      err.code = data?.error?.code || `HTTP_${status}`;
+      return Promise.reject(err);
     }
     return Promise.reject(new Error('Network error. Please check your connection.'));
   }

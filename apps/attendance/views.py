@@ -2,6 +2,7 @@ from django.core.cache import cache
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.attendance.services.attendance_service import (
@@ -28,8 +29,13 @@ def _error(message, code, http_status):
 
 class AttendanceScanView(APIView):
     permission_classes = [IsAuthenticated]
-    # Open security item (BR-203): middleware/API gateway must configure a
-    # dedicated rate limit for POST /api/v1/attendance/scan/ before production.
+    # Dedicated app-level rate limit: closes audit item 29's gateway-only
+    # dependency.  ScopedRateThrottle keys on the authenticated student, so
+    # one student's hammering cannot exhaust another's allowance.  A gateway
+    # limit stays recommended as defence in depth, but the endpoint is no
+    # longer unsafe without one.
+    throttle_classes = [AnonRateThrottle, ScopedRateThrottle]
+    throttle_scope = "attendance-scan"
 
     def post(self, request):
         serializer = AttendanceScanSerializer(data=request.data)

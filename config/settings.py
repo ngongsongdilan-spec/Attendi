@@ -119,6 +119,9 @@ REST_FRAMEWORK = {
         "user": "60/minute",
         "login": "10/minute",
         "register": "5/minute",
+        "verify-email": "10/minute",
+        "resend-verification": "3/minute",
+        "attendance-scan": "20/minute",
     },
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
@@ -143,6 +146,27 @@ ATTENDANCE_SESSION_TTL_SECONDS = int(os.environ.get("ATTENDANCE_SESSION_TTL_SECO
 
 # File upload limits (BR-183)
 MAX_FILE_SIZE_BYTES = int(os.environ.get("MAX_FILE_SIZE_BYTES", "26214400"))  # 25 MB
+
+# ===== Email delivery (OTP verification) =====
+# Console backend is the safe development default: codes print to the
+# runserver output instead of reaching a real mailbox.  Production sets
+# EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend plus SMTP values.
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True").lower() in {"true", "1", "yes"}
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL", "noreply@fetplatform.local"
+)
+
+# Email verification OTP — short-lived single-use secret (settings-driven TTL,
+# same discipline as QR_TOKEN_TTL_SECONDS; never hardcoded in the views).
+EMAIL_OTP_TTL_SECONDS = int(os.environ.get("EMAIL_OTP_TTL_SECONDS", "600"))  # 10 minutes
+EMAIL_OTP_MAX_ATTEMPTS = int(os.environ.get("EMAIL_OTP_MAX_ATTEMPTS", "5"))
 
 # ===== CORS Configuration (Frontend-Backend Integration) =====
 CORS_ALLOWED_ORIGINS = [

@@ -26,6 +26,9 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("role", "ADMINISTRATOR")
+        # CLI-created superusers must not be locked out behind the
+        # email-verification gate they administer.
+        extra_fields.setdefault("is_email_verified", True)
         return self.create_user(email, username, first_name, last_name, password, **extra_fields)
 
     def get_by_natural_key(self, email):
@@ -71,6 +74,10 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
+    is_email_verified = models.BooleanField(
+        default=False,
+        help_text="Set once the address has confirmed a one-time code.",
+    )
     faculty = models.ForeignKey(
         "academic.Faculty",
         on_delete=models.SET_NULL,

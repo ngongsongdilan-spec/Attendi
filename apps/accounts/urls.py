@@ -11,5 +11,11 @@ urlpatterns = [
     path("logout/", views.LogoutView.as_view(), name="logout"),
     path("me/", views.CurrentUserView.as_view(), name="current-user"),
     path("change-role/", views.ChangeRoleView.as_view(), name="change-role"),
+    path("verify-email/", views.VerifyEmailView.as_view(), name="verify-email"),
+    path(
+        "resend-verification/",
+        views.ResendVerificationView.as_view(),
+        name="resend-verification",
+    ),
     path("", views.UserListView.as_view(), name="user-list"),
 ]
