@@ -221,10 +221,12 @@ def add_project_member(
     if not bool(actor_authorizer(actor_id=actor_id, project=project)):
         raise UnauthorizedProjectActionError("Actor is not authorized to manage project membership")
 
-    if group_id is not None and GroupMembershipModel is not None:
-        existing = GroupMembershipModel.objects.filter(project_id=project_id, student_id=student_id, group_id=group_id)
+    if GroupMembershipModel is not None:
+        # BR-101/102: a student occupies a project at most once, whether or
+        # not a group is being set on this assignment.
+        existing = GroupMembershipModel.objects.filter(project_id=project_id, student_id=student_id)
         if hasattr(existing, "exists") and existing.exists():
-            raise DuplicateGroupMembershipError("Student is already in this project group")
+            raise DuplicateGroupMembershipError("Student is already in this project")
 
     if not is_explicit_assignment:
         raise ProjectMembershipError("Project participation requires explicit assignment or eligibility")

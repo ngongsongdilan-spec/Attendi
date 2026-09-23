@@ -85,3 +85,50 @@ class Enrollment(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["student", "course"], name="unique_course_enrollment"),
         ]
+
+
+class SchoolYear(models.Model):
+    """Academic year container (e.g. "2025/2026")."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=30, unique=True)
+    start_date = models.DateField()
+    end_date = models.DateField()
+
+    class Meta:
+        db_table = "academic_school_year"
+        ordering = ["-start_date"]
+
+    def __str__(self):
+        return self.name
+
+
+class Semester(models.Model):
+    """A term inside a school year; at most one is current platform-wide."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    school_year = models.ForeignKey(
+        SchoolYear, on_delete=models.CASCADE, related_name="semesters"
+    )
+    name = models.CharField(max_length=60)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    is_current = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "academic_semester"
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["school_year", "name"], name="unique_semester_per_year"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.school_year.name} — {self.name}"
+
+    def save(self, *args, **kwargs):
+        # Only one semester may claim "current" at a time.
+        if self.is_current:
+            Semester.objects.filter(is_current=True).exclude(pk=self.pk).update(is_current=False)
+        super().save(*args, **kwargs)

@@ -17,5 +17,6 @@ urlpatterns = [
         views.ResendVerificationView.as_view(),
         name="resend-verification",
     ),
+    path("students/", views.StudentListView.as_view(), name="student-list"),
     path("", views.UserListView.as_view(), name="user-list"),
 ]

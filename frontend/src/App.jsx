@@ -28,11 +28,14 @@ import CourseCatalogue from './Pages/Courses/CourseCatalogue';
 import AcademicCalender from './components/Academic/AcademicCalender';
 import AnnouncementList from './components/Announcements/AnnouncementList';
 import ContinuousAssessment from './components/Assessment/ContinuousAssessment';
+import ContributionTracking from './components/Assessment/ContributionTracking';
 import AttendanceDashboard from './components/Attendance/AttendanceDashboard';
 import ContributionForm from './components/Contributions/ContributionForm';
 import GroupList from './components/Groups/GroupList';
 import ProjectsList from './components/Projects/ProjectsList';
+import ProjectDetails from './components/Projects/ProjectDetails';
 import TaskList from './components/Tasks/TaskList';
+import MobileSimulator from './components/Mobile/MobileSimulator';
 import useAuth from './hooks/useAuth';
 
 function App() {
@@ -91,14 +94,17 @@ function App() {
                 <Route path="/admin/dashboard" element={<AdminDashboard />} />
                 <Route path="/admin/users" element={<AdminUsers />} />
                 <Route path="/courses" element={<CourseCatalogue />} />
-                <Route path="/academic" element={<AcademicCalender />} />
-                <Route path="/announcements" element={<AnnouncementList />} />
-                <Route path="/assessment" element={<ContinuousAssessment />} />
+                <Route path="/academic" element={<AcademicCalender user={user} />} />
+                <Route path="/announcements" element={<AnnouncementList user={user} />} />
+                <Route path="/assessment" element={<ContinuousAssessment user={user} />} />
                 <Route path="/attendance" element={<AttendanceDashboard user={{ ...user, fullName: userName }} />} />
-                <Route path="/contribution" element={<ContributionForm />} />
-                <Route path="/groups" element={<GroupList />} />
-                <Route path="/projects" element={<ProjectsList />} />
-                <Route path="/tasks" element={<TaskList />} />
+                <Route path="/contribution" element={<ContributionForm user={user} />} />
+                <Route path="/contribution/tracking" element={<ContributionTracking user={user} />} />
+                <Route path="/groups" element={<GroupList user={user} />} />
+                <Route path="/projects" element={<ProjectsList user={user} />} />
+                <Route path="/projects/:id" element={<ProjectDetails user={user} />} />
+                <Route path="/tasks" element={<TaskList user={user} />} />
+                <Route path="/mobile-simulator" element={<MobileSimulator user={user} />} />
                 <Route path="*" element={<Navigate to="/" />} />
               </Routes>
             </main>

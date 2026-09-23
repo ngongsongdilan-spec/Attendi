@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
-from core.academic_access import is_admin_user
+from core.academic_access import is_admin_user, is_authorized_academic_user
 from core.audit import write_audit_entry
 
 from .models import User
@@ -318,3 +318,37 @@ class ResendVerificationView(APIView):
                 )
             }
         )
+
+
+class StudentListView(APIView):
+    """Academic-readable student directory for assessment and member pickers.
+
+    The general user list (/accounts/) is administrator-only; lecturers need
+    this narrower view to choose students when creating assessments or
+    assigning them to projects.  Only identity fields are returned — no
+    emails, matricules, or other personal data beyond names.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not is_authorized_academic_user(request.user):
+            return _error_response(
+                "Only academic users may list students.",
+                "UNAUTHORIZED",
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        students = User.objects.filter(role=User.Role.STUDENT).order_by(
+            "first_name", "last_name", "username"
+        )
+        rows = [
+            {
+                "id": student.id,
+                "first_name": student.first_name,
+                "last_name": student.last_name,
+                "username": student.username,
+            }
+            for student in students
+        ]
+        return _success_response(rows)

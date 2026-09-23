@@ -1,3 +1,3 @@
 export default function Test() {
-  return <h1>Test component works</h1>;
+  return <h1>✅ Test component works</h1>;
 }

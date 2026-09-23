@@ -147,19 +147,22 @@ def user_has_scope_access(
     normalized = normalize_scope(scope, allowed_scopes=VALID_ANNOUNCEMENT_SCOPES)
 
     if normalized == SCOPE_FACULTY:
-        faculty_id = getattr(user, "faculty_id", None)
+        faculty_id = getattr(user, "faculty_id", None) or user_faculty_id
         return faculty_id == scope_id
 
     if normalized == SCOPE_DEPARTMENT:
-        department_id = getattr(user, "department_id", None)
+        department_id = getattr(user, "department_id", None) or user_department_id
         return department_id == scope_id
 
     if normalized in {SCOPE_COURSE, SCOPE_COURSE_CLASS}:
-        if scope_id in collect_user_course_ids(user):
+        # Server-derived memberships (e.g. the announcement view's enrollment
+        # lookup) arrive as user_course_ids and must be honoured; user
+        # attributes alone are only a fallback.
+        if scope_id in collect_user_course_ids(user, user_course_ids):
             return True
 
     if normalized in {SCOPE_CLASS, SCOPE_COURSE_CLASS}:
-        if scope_id in collect_user_class_ids(user):
+        if scope_id in collect_user_class_ids(user, user_class_ids):
             return True
 
     return False

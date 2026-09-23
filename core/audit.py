@@ -16,8 +16,33 @@ Business rules enforced here:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional
+from uuid import UUID
+
+
+def _json_safe(value: Any) -> Any:
+    """Coerce audit payloads into JSON-serializable primitives.
+
+    Audit details routinely carry UUIDs (scope/student/project ids),
+    datetimes, and decimals, which the AuditEvent JSONField cannot encode;
+    rather than losing the audit record (or crashing the business action),
+    every value is converted to a safe primitive recursively.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_json_safe(item) for item in value]
+    return str(value)
 
 
 class AuditError(ValueError):
@@ -113,9 +138,9 @@ def write_audit_entry(
         resource_type=str(resource_type),
         resource_id=resource_id,
         actor_id=actor_id,
-        details=dict(details or {}),
-        old_value=old_value,
-        new_value=new_value,
+        details=_json_safe(dict(details or {})),
+        old_value=_json_safe(old_value),
+        new_value=_json_safe(new_value),
         timestamp=timestamp or datetime.now(timezone.utc),
         correlation_id=_build_correlation_id(resource_type, resource_id, action, actor_id),
     )

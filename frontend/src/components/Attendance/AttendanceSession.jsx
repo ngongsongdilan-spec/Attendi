@@ -1,0 +1,306 @@
+import React, { useState } from 'react';
+import { useAppContext } from '../../context/AppContext';
+import { X, Users, QrCode, ChevronRight, Search, Check } from 'lucide-react';
+
+const AttendanceSession = ({ user, onClose, onCreated }) => {
+  const { addAttendanceSession } = useAppContext();
+  const [step, setStep] = useState(1);
+  const [formData, setFormData] = useState({
+    courseCode: '',
+    courseName: '',
+    className: '',
+    mode: 'LECTURER_PROJECTED',
+    stationStudents: [],
+    tokenDuration: 10,
+    sessionDuration: 60,
+  });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [error, setError] = useState('');
+
+  // Mock courses
+  const courses = [
+    { code: 'CEF444', name: 'Artificial Intelligence and Machine Learning' },
+    { code: 'CEF350', name: 'Security and Cryptosystem' },
+    { code: 'CEF342', name: 'Database and Design' },
+    { code: 'SE401', name: 'Advanced Software Engineering' },
+    { code: 'SE402', name: 'Agile Development' },
+  ];
+
+  // Mock classes
+  const classes = [
+    { id: 'cen400-a', name: 'CEN Level 400 - Group A' },
+    { id: 'cen400-b', name: 'CEN Level 400 - Group B' },
+    { id: 'se400-a', name: 'SE Level 400 - Group A' },
+  ];
+
+  // Mock students
+  const eligibleStudents = [
+    { matricule: 'FE24A389', name: 'Alex Scholar', level: '400' },
+    { matricule: 'FE24B456', name: 'Emma Watson', level: '400' },
+    { matricule: 'FE23C789', name: 'James Miller', level: '400' },
+    { matricule: 'FE25D012', name: 'Sarah Connor', level: '400' },
+  ];
+
+  // Class -> eligible students mapping (mock enrolment)
+  const getEligibleForClass = (className) => {
+    const byMatricule = { FE24A389: 'Alex Scholar', FE24B456: 'Emma Watson', FE23C789: 'James Miller', FE25D012: 'Sarah Connor' };
+    return { ids: Object.keys(byMatricule), names: byMatricule };
+  };
+
+  const filteredStudents = eligibleStudents.filter(s =>
+    s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    s.matricule.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const handleSelectStudent = (student) => {
+    if (formData.stationStudents.find(s => s.matricule === student.matricule)) {
+      setFormData(prev => ({
+        ...prev,
+        stationStudents: prev.stationStudents.filter(s => s.matricule !== student.matricule)
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        stationStudents: [...prev.stationStudents, student]
+      }));
+    }
+  };
+
+  const handleSubmit = () => {
+    if (!formData.courseCode || !formData.className) {
+      setError('Please select a course and class');
+      return;
+    }
+
+    if (formData.mode === 'STATION_BASED' && formData.stationStudents.length === 0) {
+      setError('Please select at least one station student');
+      return;
+    }
+
+    const eligibility = getEligibleForClass(formData.className);
+
+    addAttendanceSession({
+      courseCode: formData.courseCode,
+      courseName: courses.find(c => c.code === formData.courseCode)?.name || '',
+      className: formData.className,
+      mode: formData.mode,
+      stationStudentIds: formData.stationStudents.map(s => s.matricule),
+      eligibleStudentIds: eligibility.ids,
+      stationStudentNames: eligibility.names,
+      tokenDuration: formData.tokenDuration,
+      sessionDuration: formData.sessionDuration,
+      lecturerId: user?.staffNumber || 'LEC001',
+    });
+
+    if (onCreated) onCreated();
+    if (onClose) onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="fet-card bg-white rounded-2xl shadow-modal max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-border-default">
+          <h3 className="text-xl font-bold text-text-primary">Create Attendance Session</h3>
+          <button onClick={onClose} className="p-1 hover:bg-page-bg rounded-lg">
+            <X size={24} className="text-text-secondary" />
+          </button>
+        </div>
+
+        {/* Steps Indicator */}
+        <div className="flex items-center justify-center gap-4 p-4 bg-page-bg border-b border-border-default">
+          {[1, 2, 3].map((s) => (
+            <div key={s} className="flex items-center gap-2">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                step >= s ? 'bg-primary text-white' : 'bg-page-bg text-text-secondary'
+              }`}>
+                {s}
+              </div>
+              {s < 3 && <ChevronRight size={16} className="text-text-secondary" />}
+            </div>
+          ))}
+        </div>
+
+        <div className="p-6">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-danger px-4 py-3 rounded-xl text-sm mb-4">
+              {error}
+            </div>
+          )}
+
+          {/* Step 1: Select Course & Class */}
+          {step === 1 && (
+            <div className="space-y-4">
+              <div>
+                <label className="fet-label">Course *</label>
+                <select
+                  value={formData.courseCode}
+                  onChange={(e) => {
+                    const course = courses.find(c => c.code === e.target.value);
+                    setFormData(prev => ({
+                      ...prev,
+                      courseCode: e.target.value,
+                      courseName: course?.name || ''
+                    }));
+                  }}
+                  className="fet-select"
+                >
+                  <option value="">Select Course</option>
+                  {courses.map(c => (
+                    <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="fet-label">Class *</label>
+                <select
+                  value={formData.className}
+                  onChange={(e) => setFormData(prev => ({ ...prev, className: e.target.value }))}
+                  className="fet-select"
+                >
+                  <option value="">Select Class</option>
+                  {classes.map(c => (
+                    <option key={c.id} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="fet-label">Attendance Mode</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, mode: 'STATION_BASED' }))}
+                    className={`p-4 rounded-xl border-2 transition-colors text-center ${
+                      formData.mode === 'STATION_BASED'
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border-default hover:border-primary'
+                    }`}
+                  >
+                    <Users size={24} className="mx-auto mb-1" />
+                    <p className="text-sm font-medium">Station-Based</p>
+                    <p className="text-xs text-text-secondary">Students as QR stations</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, mode: 'LECTURER_PROJECTED' }))}
+                    className={`p-4 rounded-xl border-2 transition-colors text-center ${
+                      formData.mode === 'LECTURER_PROJECTED'
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border-default hover:border-primary'
+                    }`}
+                  >
+                    <QrCode size={24} className="mx-auto mb-1" />
+                    <p className="text-sm font-medium">Projected QR</p>
+                    <p className="text-xs text-text-secondary">Lecturer displays QR</p>
+                  </button>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setStep(2)}
+                className="w-full fet-btn-primary"
+              >
+                Continue →
+              </button>
+            </div>
+          )}
+
+          {/* Step 2: Select Stations (only for STATION_BASED) */}
+          {step === 2 && formData.mode === 'STATION_BASED' && (
+            <div className="space-y-4">
+              <div>
+                <label className="fet-label">Select QR Stations</label>
+                <p className="text-sm text-text-secondary mb-3">Select students who will display QR codes</p>
+
+                <div className="relative mb-4">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary" size={18} />
+                  <input
+                    type="text"
+                    placeholder="Search students..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="fet-input pl-10"
+                  />
+                </div>
+
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {filteredStudents.map(student => (
+                    <div
+                      key={student.matricule}
+                      onClick={() => handleSelectStudent(student)}
+                      className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-colors ${
+                        formData.stationStudents.find(s => s.matricule === student.matricule)
+                          ? 'bg-primary/10 border-2 border-primary'
+                          : 'bg-page-bg hover:bg-gray-100'
+                      }`}
+                    >
+                      <div>
+                        <p className="font-medium text-text-primary">{student.name}</p>
+                        <p className="text-sm text-text-secondary">{student.matricule}</p>
+                      </div>
+                      {formData.stationStudents.find(s => s.matricule === student.matricule) && (
+                        <Check size={18} className="text-primary" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 p-3 bg-page-bg rounded-xl">
+                  <p className="text-sm text-text-secondary">
+                    Selected: <span className="font-bold text-text-primary">{formData.stationStudents.length}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setStep(1)}
+                  className="flex-1 fet-btn-secondary"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  className="flex-1 fet-btn-success"
+                >
+                  Launch Attendance
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Projected QR Mode */}
+          {step === 2 && formData.mode === 'LECTURER_PROJECTED' && (
+            <div className="space-y-4">
+              <div className="p-6 bg-page-bg rounded-xl text-center">
+                <QrCode size={48} className="mx-auto text-primary mb-2" />
+                <h4 className="text-lg font-semibold text-text-primary">Projected QR Mode</h4>
+                <p className="text-sm text-text-secondary">QR code will be displayed on your device</p>
+                <p className="text-sm text-text-secondary">Students will scan from their phones</p>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setStep(1)}
+                  className="flex-1 fet-btn-secondary"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  className="flex-1 fet-btn-success"
+                >
+                  Launch Attendance
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AttendanceSession;

@@ -27,3 +27,13 @@ export async function getCourses() {
   const response = await apiClient.get(ACADEMIC_ENDPOINTS.COURSES);
   return response.data;
 }
+
+/**
+ * Class sessions (course occurrence + lecturer) — feeds announcement scope
+ * pickers and class listings.
+ * @returns {Promise<Array<{id: string, course: string, course_code: string, lecturer: string, lecturer_name: string, starts_at: string|null}>>}
+ */
+export async function getClasses() {
+  const response = await apiClient.get(ACADEMIC_ENDPOINTS.CLASSES);
+  return response.data;
+}
