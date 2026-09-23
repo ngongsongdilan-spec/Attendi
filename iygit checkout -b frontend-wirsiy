@@ -1,0 +1,10 @@
+* [33m233f716[m[33m ([m[1;31morigin/services[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/integration[m[33m, [m[1;31morigin/frontend[m[33m, [m[1;31morigin/database[m[33m, [m[1;31morigin/complete[m[33m, [m[1;31morigin/backend_models[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;31morigin/Backend_api_atendance[m[33m)[m feat(accounts): implement user auth, role management, and audit trail
+* [33meed1fc1[m Initial commit: business logic services and utils layer
+* [33m902b995[m Add .gitignore
+* [33mb7910a2[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfrontend[m[33m, [m[1;32mfrontend-backup[m[33m)[m Update frontend pages and components
+* [33m0e3b348[m Update frontend pages and components
+* [33m960f856[m Update frontend pages and components
+* [33m95d3287[m Update frontend
+* [33m52fdd16[m Update frontend
+* [33m56d3adb[m Frontend project
+* [33m0492b02[m[33m ([m[1;32mmain[m[33m)[m Initial commit
