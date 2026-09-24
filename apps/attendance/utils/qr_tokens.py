@@ -52,11 +52,30 @@ def _key(token: str) -> str:
 
 
 def _redis_client() -> Optional[Any]:
-    """Return a raw Redis client only for Django's Redis cache backend."""
+    """Return a raw Redis client only for Django's Redis cache backend.
+
+    django_redis exposes the raw client differently across versions: older
+    releases put ``get_client`` on the ``RedisCache`` backend itself, 7.x
+    wraps it in a ``DefaultClient`` reachable as ``backend.client``.  Probe
+    both so the production atomic path engages wherever Redis is configured;
+    any other backend returns None and callers fall back to the Django cache
+    API (single-process development/tests only).
+    """
     backend = getattr(cache, "_cache", None)
-    if backend is None or not hasattr(backend, "get_client"):
+    if backend is None:
+        try:
+            backend = cache._connections[cache._alias]
+        except (AttributeError, KeyError, TypeError, IndexError):
+            return None
+    if backend is None:
         return None
-    return backend.get_client(write=True)
+    target = getattr(backend, "client", None) or backend
+    if not hasattr(target, "get_client"):
+        return None
+    try:
+        return target.get_client(write=True)
+    except Exception:  # pragma: no cover - connection setup failures
+        return None
 
 
 def generate_token(*, checkpoint_id: Any, session_id: Any) -> str:
