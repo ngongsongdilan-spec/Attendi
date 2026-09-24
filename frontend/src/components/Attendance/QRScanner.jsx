@@ -1,158 +1,234 @@
-import React, { useState, useEffect } from 'react';
-import { useAppContext } from '../../context/AppContext';
-import { QrCode, X, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+/**
+ * QRScanner — student check-in modal.
+ *
+ * Scans a checkpoint QR with the device camera (html5-qrcode) or accepts a
+ * manual code when the camera is unavailable or blocked.  The scanned token is
+ * posted to the API; identity is never sent — the backend credits only the
+ * authenticated student, and only the checkpoint's own student can redeem
+ * that checkpoint's code (BR-039).
+ *
+ * @module components/Attendance/QRScanner
+ */
 
-const QRScanner = ({ session, user, onClose, onScan }) => {
-  const { recordAttendance } = useAppContext();
+import React, { useEffect, useRef, useState } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
+import { Camera, CheckCircle2, Keyboard, X, Loader2 } from 'lucide-react';
+import { scanAttendance } from '../../api/attendance';
+
+const ERROR_HINTS = {
+  TOKEN_EXPIRED: 'This QR code has expired. Ask your lecturer for a fresh one.',
+  TOKEN_ALREADY_USED: 'This code has already been used.',
+  INVALID_TOKEN: 'That is not a valid attendance code.',
+  TOKEN_STUDENT_MISMATCH: 'This QR code belongs to a different student.',
+  NOT_ELIGIBLE: 'You are not eligible for this class.',
+  SESSION_EXPIRED: 'This attendance session has ended.',
+  ALREADY_MARKED: 'You are already marked for this session.',
+  RATE_LIMITED: 'Too many attempts — wait a minute and try again.',
+  UNAUTHENTICATED: 'Session expired. Please log in again.',
+};
+
+const QRScanner = ({ user, onClose, onScanned }) => {
+  const scannerRef = useRef(null);
+  const containerRef = useRef(null);
+  const [mode, setMode] = useState('camera');
   const [scanning, setScanning] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const [manualCode, setManualCode] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
-  const [manualCode, setManualCode] = useState('');
 
-  const handleSimulateScan = () => {
-    if (!session) {
-      setError('No active session');
-      return;
-    }
-
-    if (Date.now() > session.tokenExpiresAt) {
-      setError('QR code expired. Please scan the current QR code.');
-      return;
-    }
-
-    if (Date.now() > session.sessionExpiresAt) {
-      setError('Session has expired.');
-      return;
-    }
-
-    setScanning(true);
-    setError('');
-
-    setTimeout(() => {
-      const response = recordAttendance(session.id, user?.matricule || 'FE24A389', 'QR Scan');
-      
-      if (response.success) {
-        setResult({
-          success: true,
-          course: session.courseCode,
-          className: session.className,
-          time: new Date().toLocaleTimeString(),
-          status: 'PRESENT',
-        });
-        onScan && onScan(response);
-      } else {
-        setError(response.error);
+  const stopCamera = async () => {
+    if (scannerRef.current) {
+      try {
+        await scannerRef.current.stop();
+      } catch {
+        // Already stopped.
       }
-      setScanning(false);
-    }, 1500);
+      try {
+        scannerRef.current.clear();
+      } catch {
+        // Element may already be cleared.
+      }
+      scannerRef.current = null;
+    }
   };
 
-  const handleManualSubmit = (e) => {
+  useEffect(() => {
+    let mounted = true;
+    if (mode !== 'camera') return undefined;
+
+    setScanning(true);
+    setCameraError('');
+
+    const start = async () => {
+      try {
+        const scanner = new Html5Qrcode(containerRef.current.id, { verbose: false });
+        scannerRef.current = scanner;
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 240, height: 240 } },
+          async (decodedText) => {
+            if (!mounted) return;
+            setScanning(false);
+            await stopCamera();
+            await handleScan(decodedText);
+          },
+          () => {
+            // Per-frame decode noise is ignored; failures surface on start.
+          }
+        );
+        if (mounted) setScanning(false);
+      } catch (err) {
+        if (!mounted) return;
+        setScanning(false);
+        setCameraError(
+          'Could not start the camera. Permission may be blocked or the device has no camera — use the manual code instead.'
+        );
+        setMode('manual');
+      }
+    };
+    start();
+
+    return () => {
+      mounted = false;
+      stopCamera();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  const handleScan = async (token) => {
+    const trimmed = (token || '').trim();
+    if (!trimmed) return;
+    setError('');
+    setResult(null);
+    try {
+      const data = await scanAttendance(trimmed);
+      setResult({
+        success: true,
+        time: new Date().toLocaleTimeString(),
+        raw: data,
+      });
+      onScanned && onScanned(data);
+    } catch (err) {
+      setResult(null);
+      setError(ERROR_HINTS[err.code] || err.message || 'Could not scan that code.');
+    }
+  };
+
+  const handleManualSubmit = async (e) => {
     e.preventDefault();
-    if (!manualCode) {
-      setError('Please enter the attendance code');
-      return;
-    }
-    
-    if (manualCode === session?.token) {
-      handleSimulateScan();
-    } else {
-      setError('Invalid attendance code. Please try again.');
-    }
+    await handleScan(manualCode);
+  };
+
+  const switchToManual = async () => {
+    await stopCamera();
+    setMode('manual');
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="fet-card bg-white rounded-2xl shadow-modal max-w-md w-full p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-bold text-text-primary">Scan QR Code</h3>
-          <button onClick={onClose} className="p-1 hover:bg-page-bg rounded-lg">
-            <X size={24} className="text-text-secondary" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-[#0F0B3D]">Check in</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-[#47464F] hover:text-[#0F0B3D]"
+            aria-label="Close"
+          >
+            <X size={20} />
           </button>
         </div>
 
-        {/* Result */}
-        {result?.success ? (
-          <div className="text-center py-6">
-            <CheckCircle size={64} className="mx-auto text-success mb-4" />
-            <h4 className="text-xl font-bold text-success">Attendance Recorded</h4>
-            <p className="text-text-secondary mt-2">Course: {result.course}</p>
-            <p className="text-text-secondary">Class: {result.className}</p>
-            <p className="text-text-secondary">Time: {result.time}</p>
-            <p className="text-text-secondary">Status: <span className="font-bold text-success">{result.status}</span></p>
+        {result ? (
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <CheckCircle2 size={40} className="text-[#166534]" />
+            <p className="font-semibold text-[#0F0B3D]">You&apos;re marked present!</p>
+            {result.time && <p className="text-sm text-[#47464F]">Recorded at {result.time}</p>}
             <button
+              type="button"
               onClick={onClose}
-              className="mt-4 fet-btn-primary"
+              className="mt-2 rounded-lg bg-[#0F0B3D] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3F35B5]"
             >
               Done
             </button>
           </div>
         ) : (
           <>
-            {/* QR Scanner Area */}
-            <div className="border-2 border-dashed border-border-default rounded-xl p-8 text-center">
-              {scanning ? (
-                <div className="py-4">
-                  <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
-                  <p className="text-text-secondary mt-2">Scanning...</p>
-                </div>
-              ) : (
-                <div>
-                  <QrCode size={64} className="mx-auto text-primary" />
-                  <p className="text-text-secondary mt-2">Point your camera at the QR code</p>
-                  <button
-                    onClick={handleSimulateScan}
-                    className="mt-4 fet-btn-primary"
-                  >
-                    Simulate Scan
-                  </button>
-                </div>
-              )}
+            <div className="mb-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCameraError('');
+                  setMode('camera');
+                }}
+                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  mode === 'camera'
+                    ? 'bg-[#0F0B3D] text-white'
+                    : 'border border-[#E5E5F0] text-[#47464F]'
+                }`}
+              >
+                <Camera size={15} /> Camera
+              </button>
+              <button
+                type="button"
+                onClick={switchToManual}
+                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  mode === 'manual'
+                    ? 'bg-[#0F0B3D] text-white'
+                    : 'border border-[#E5E5F0] text-[#47464F]'
+                }`}
+              >
+                <Keyboard size={15} /> Type the code
+              </button>
             </div>
 
-            {/* OR Manual Entry */}
-            <div className="mt-4">
-              <p className="text-sm text-text-secondary text-center mb-2">OR</p>
-              <form onSubmit={handleManualSubmit} className="flex gap-2">
+            {mode === 'camera' && !cameraError && (
+              <>
+                <div className="relative overflow-hidden rounded-xl bg-black">
+                  <div
+                    id="fet-qr-reader"
+                    ref={containerRef}
+                    className="min-h-[280px] w-full"
+                  />
+                  {scanning && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-sm text-white">
+                      <span className="flex items-center gap-2">
+                        <Loader2 size={18} className="animate-spin" /> Starting camera…
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <p className="mt-2 text-center text-xs text-[#47464F]">
+                  Point your camera at the QR code on the check-in screen.
+                </p>
+              </>
+            )}
+
+            {mode === 'manual' && (
+              <form onSubmit={handleManualSubmit} className="space-y-3">
                 <input
                   type="text"
                   value={manualCode}
                   onChange={(e) => setManualCode(e.target.value)}
-                  placeholder="Enter attendance code"
-                  className="flex-1 fet-input uppercase"
+                  placeholder="Paste or type the attendance code"
+                  className="fet-input"
+                  autoFocus
                 />
                 <button
                   type="submit"
-                  className="fet-btn-primary"
+                  disabled={!manualCode.trim()}
+                  className="w-full rounded-lg bg-[#0F0B3D] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#3F35B5] disabled:opacity-50 transition-colors"
                 >
-                  Submit
+                  Check in
                 </button>
               </form>
-            </div>
-
-            {/* Error */}
-            {error && (
-              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-danger text-sm flex items-center gap-2">
-                <AlertCircle size={18} />
-                {error}
-              </div>
             )}
 
-            {/* Session Info */}
-            {session && (
-              <div className="mt-4 p-3 bg-page-bg rounded-xl flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-text-primary">{session.courseCode}</p>
-                  <p className="text-xs text-text-secondary">{session.className}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm text-text-secondary">Token expires</p>
-                  <p className="text-sm font-bold text-text-primary" id="scanner-countdown">
-                    {Math.max(0, Math.round((session.tokenExpiresAt - Date.now()) / 1000))}s
-                  </p>
-                </div>
-              </div>
+            {cameraError && mode === 'manual' && (
+              <p className="mt-3 text-sm text-[#B45309]">{cameraError}</p>
             )}
+            {error && <p className="mt-3 text-sm text-[#E53935]">{error}</p>}
           </>
         )}
       </div>

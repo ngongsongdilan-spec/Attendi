@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Iterable, List, Optional
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -17,6 +18,7 @@ from apps.attendance.models import (
     AttendanceRecord,
     AttendanceSession,
 )
+from core.academic_access import is_admin_user, is_authorized_academic_user
 from apps.attendance.utils.qr_tokens import (
     InvalidTokenError,
     TokenAlreadyUsedError,
@@ -57,6 +59,24 @@ class CheckpointNotEligibleError(AttendanceError):
 
 class CorrectionAuthorizationError(AttendanceError):
     """An attendance correction lacks lecturer authority or an audit reason."""
+
+
+class ClassSessionNotFoundError(AttendanceError):
+    """The class the lecturer tried to open a session for does not exist."""
+
+
+class SessionAlreadyActiveError(AttendanceError):
+    """An unexpired active attendance session already exists for this class."""
+
+
+class SessionNotActiveError(AttendanceError):
+    """The session is closed or expired and no longer accepts actions."""
+
+
+# BR-036: session windows stay short by design; the default comes from
+# settings, and the lecturer may pick a duration inside this band.
+ATTENDANCE_SESSION_MIN_SECONDS = 10
+ATTENDANCE_SESSION_MAX_SECONDS = 600
 
 
 def _session_is_active(session: AttendanceSession, now: Optional[datetime] = None) -> bool:
@@ -243,3 +263,177 @@ def evaluate_repeated_failure(
         )
         return True
     return False
+
+
+def _resolve_session_duration(duration_seconds: Optional[int]) -> int:
+    """Return a validated session duration; default from settings (BR-036)."""
+    if duration_seconds is None:
+        value = int(getattr(settings, "ATTENDANCE_SESSION_TTL_SECONDS", 60))
+    else:
+        value = int(duration_seconds)
+    if value < ATTENDANCE_SESSION_MIN_SECONDS or value > ATTENDANCE_SESSION_MAX_SECONDS:
+        raise AttendanceError(
+            f"Attendance session duration must be between "
+            f"{ATTENDANCE_SESSION_MIN_SECONDS} and {ATTENDANCE_SESSION_MAX_SECONDS} seconds"
+        )
+    return value
+
+
+def start_attendance_session(
+    *,
+    actor: User,
+    class_session_id: Any,
+    duration_seconds: Optional[int] = None,
+) -> AttendanceSession:
+    """BR-030/BR-036: open an attendance window on a lecturer's own class.
+
+    Only academic users may start sessions, and (unless the actor is an
+    administrator) only the lecturer who owns the class session may open it.
+    At most one live session per class at a time; a lecturer re-opening the
+    same class while a session is still unexpired is a conflict.
+    """
+    if actor is None or not actor.is_authenticated:
+        raise LecturerNotAuthorizedError("Authentication is required to start an attendance session")
+    if not is_authorized_academic_user(actor):
+        raise LecturerNotAuthorizedError("Only academic users can start attendance sessions")
+
+    try:
+        class_session = ClassSession.objects.select_related("course").get(id=class_session_id)
+    except (ClassSession.DoesNotExist, ValueError, TypeError):
+        raise ClassSessionNotFoundError("Class session does not exist")
+
+    if not is_admin_user(actor) and str(class_session.lecturer_id) != str(actor.id):
+        raise LecturerNotAuthorizedError("Only the class lecturer can start this attendance session")
+
+    duration = _resolve_session_duration(duration_seconds)
+    now = timezone.now()
+
+    live = AttendanceSession.objects.filter(
+        class_session=class_session,
+        status=AttendanceSession.Status.ACTIVE,
+        expires_at__gt=now,
+    ).first()
+    if live is not None:
+        raise SessionAlreadyActiveError("An active attendance session already exists for this class")
+
+    session = AttendanceSession.objects.create(
+        class_session=class_session,
+        lecturer=actor,
+        expires_at=now + timedelta(seconds=duration),
+    )
+    write_audit_entry(
+        action="attendance_session_started",
+        resource_type="attendance_session",
+        resource_id=session.id,
+        actor_id=actor.id,
+        details={
+            "class_session_id": str(class_session.id),
+            "course_code": class_session.course.code,
+            "duration_seconds": duration,
+        },
+    )
+    return session
+
+
+def refresh_session_status(session: AttendanceSession) -> AttendanceSession:
+    """Lazily flip an over-time ACTIVE session to EXPIRED (BR-036/BR-041)."""
+    if (
+        session.status == AttendanceSession.Status.ACTIVE
+        and session.expires_at <= timezone.now()
+    ):
+        session.status = AttendanceSession.Status.EXPIRED
+        session.save(update_fields=["status"])
+    return session
+
+
+def close_attendance_session(*, actor: User, session: AttendanceSession) -> AttendanceSession:
+    """Close a live session; only the session lecturer (or an admin) may do so."""
+    if actor is None or not actor.is_authenticated:
+        raise LecturerNotAuthorizedError("Authentication is required to close an attendance session")
+    if not is_admin_user(actor) and str(actor.id) != str(session.lecturer_id):
+        raise LecturerNotAuthorizedError("Only the session lecturer can close this session")
+
+    if session.status == AttendanceSession.Status.CLOSED:
+        raise SessionNotActiveError("Attendance session is already closed")
+
+    refresh_session_status(session)
+    if session.status != AttendanceSession.Status.ACTIVE:
+        raise SessionNotActiveError("Only an active attendance session can be closed")
+
+    session.status = AttendanceSession.Status.CLOSED
+    session.save(update_fields=["status"])
+    write_audit_entry(
+        action="attendance_session_closed",
+        resource_type="attendance_session",
+        resource_id=session.id,
+        actor_id=actor.id,
+        details={"class_session_id": str(session.class_session_id)},
+    )
+    return session
+
+
+def eligible_students_for_session(*, session: AttendanceSession) -> List[User]:
+    """BR-031/BR-050: the checkpoint roster is the active course enrollment.
+
+    Eligibility is never manual: the same enrollment-derived rule the scan
+    path enforces powers the lecturer's checkpoint picker.
+    """
+    return list(
+        User.objects.filter(
+            role=User.Role.STUDENT,
+            enrollments__course_id=session.class_session.course_id,
+            enrollments__is_active=True,
+        )
+        .distinct()
+        .order_by("first_name", "last_name", "username")
+    )
+
+
+def list_review_flags(*, actor: User, limit: int = 100) -> List[dict[str, Any]]:
+    """BR-064 review surface.
+
+    Suspicious-activity flags are audit events (never denials).  A lecturer
+    sees flags raised for students in classes they teach; an administrator
+    sees all flags, newest first.
+    """
+    from core.models import AuditEvent
+
+    if actor is None or not actor.is_authenticated:
+        raise LecturerNotAuthorizedError("Authentication is required to review attendance flags")
+
+    flag_events = AuditEvent.objects.filter(
+        action="attendance_suspicious_activity"
+    ).order_by("-timestamp")
+
+    if not is_admin_user(actor):
+        my_course_ids = set(
+            ClassSession.objects.filter(lecturer=actor).values_list("course_id", flat=True)
+        )
+        my_student_ids = {
+            str(sid)
+            for sid in Enrollment.objects.filter(
+                course_id__in=my_course_ids, is_active=True
+            ).values_list("student_id", flat=True)
+        }
+        flag_events = [
+            event for event in flag_events[:500] if str(event.actor_id) in my_student_ids
+        ]
+    else:
+        flag_events = list(flag_events[:limit])
+
+    students = {
+        str(user.id): f"{user.first_name} {user.last_name}".strip() or user.username
+        for user in User.objects.filter(id__in=[event.actor_id for event in flag_events])
+    }
+    return [
+        {
+            "id": str(event.id),
+            "student_id": str(event.actor_id),
+            "student_name": students.get(str(event.actor_id), "Unknown student"),
+            "reason": (event.details or {}).get("reason"),
+            "failure_code": (event.details or {}).get("failure_code"),
+            "request_ip": (event.details or {}).get("request_ip"),
+            "timestamp": event.timestamp,
+        }
+        for event in flag_events[:limit]
+    ]

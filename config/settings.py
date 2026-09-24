@@ -84,6 +84,18 @@ CACHES = {
     }
 }
 
+# Opt into the real Redis cache even with DEBUG=True (local runs of these
+# production settings against the Redis container — same flag settings_dev
+# honors).  Without the flag, DEBUG decides exactly as before:
+#   PowerShell:  $env:USE_REDIS_CACHE = "1"
+if os.environ.get("USE_REDIS_CACHE", "").lower() in {"1", "true", "yes"}:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": os.getenv("REDIS_URL", "redis://localhost:6379/0"),
+        }
+    }
+
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},

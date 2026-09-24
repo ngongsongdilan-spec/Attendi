@@ -18,6 +18,14 @@ export const AUTH_ENDPOINTS = {
 
 export const ATTENDANCE_ENDPOINTS = {
   SCAN: '/attendance/scan/',
+  SESSIONS: '/attendance/sessions/',
+  SESSION_DETAIL: (id) => `/attendance/sessions/${id}/`,
+  SESSION_CLOSE: (id) => `/attendance/sessions/${id}/close/`,
+  SESSION_CHECKPOINTS: (id) => `/attendance/sessions/${id}/checkpoints/`,
+  CHECKPOINT_TOKEN: (id) => `/attendance/checkpoints/${id}/token/`,
+  RECORDS: '/attendance/records/',
+  RECORD_CORRECTIONS: (id) => `/attendance/records/${id}/corrections/`,
+  REVIEW: '/attendance/review/',
 };
 
 export const ACADEMIC_ENDPOINTS = {
