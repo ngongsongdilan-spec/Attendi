@@ -27,3 +27,5 @@ staticfiles/
 # Vim swap files
 *.swp
 *.swo
+.vercel
+.env*
