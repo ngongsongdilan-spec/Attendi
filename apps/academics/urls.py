@@ -1,0 +1,37 @@
+from django.urls import path
+
+from . import views
+
+urlpatterns = [
+    path("faculties/", views.FacultyListView.as_view(), name="faculty-list"),
+    path("faculties/create/", views.FacultyCreateView.as_view(), name="faculty-create"),
+    path("faculties/<uuid:faculty_id>/", views.FacultyDetailView.as_view(), name="faculty-detail"),
+    path("departments/", views.DepartmentListView.as_view(), name="department-list"),
+    path("departments/public/", views.PublicDepartmentListView.as_view(), name="department-public-list"),
+    path("departments/create/", views.DepartmentCreateView.as_view(), name="department-create"),
+    path("departments/<uuid:department_id>/", views.DepartmentDetailView.as_view(), name="department-detail"),
+    path("semesters/", views.SemesterListView.as_view(), name="semester-list"),
+    path("semesters/<uuid:semester_id>/activate/", views.SemesterActivateView.as_view(), name="semester-activate"),
+    path("admin/stats/", views.AdminStatsView.as_view(), name="admin-stats"),
+    path("courses/", views.CourseListView.as_view(), name="course-list"),
+    path("courses/<uuid:course_id>/", views.CourseDetailView.as_view(), name="course-detail"),
+    path("course-offerings/", views.CourseOfferingListView.as_view(), name="offering-list"),
+    path("course-offerings/create/", views.CourseOfferingCreateView.as_view(), name="offering-create"),
+    path("course-offerings/<uuid:offering_id>/", views.CourseOfferingDetailView.as_view(), name="offering-detail"),
+    path("course-offerings/<uuid:offering_id>/enrollments/", views.EnrollmentListView.as_view(), name="enrollment-list"),
+    path("course-offerings/<uuid:offering_id>/enrollments/<uuid:student_id>/", views.EnrollmentListView.as_view(), name="enrollment-detail"),
+    path("students/me/courses/", views.MyCoursesView.as_view(), name="my-courses"),
+    path("students/me/register/", views.StudentRegistrationView.as_view(), name="student-register"),
+    path("students/me/available-courses/", views.StudentRegistrationView.as_view(), name="available-courses"),
+    path("lecturers/me/courses/", views.LecturerMyCoursesView.as_view(), name="lecturer-my-courses"),
+    path("course-offerings/<uuid:offering_id>/schedules/", views.ScheduleListView.as_view(), name="schedule-list"),
+    path("schedules/<uuid:schedule_id>/", views.ScheduleDetailView.as_view(), name="schedule-detail"),
+    path("carry-over/apply/", views.CarryOverApplyView.as_view(), name="carry-over-apply"),
+    path("carry-over/", views.CarryOverListView.as_view(), name="carry-over-list"),
+    path("carry-over/<uuid:application_id>/review/", views.CarryOverReviewView.as_view(), name="carry-over-review"),
+    path("course-offerings/<uuid:offering_id>/classes/", views.ClassDefinitionListView.as_view(), name="class-list"),
+    path("classes/<uuid:class_id>/", views.ClassDefinitionDetailView.as_view(), name="class-detail"),
+    path("classes/<uuid:class_id>/sessions/", views.ClassSessionListView.as_view(), name="session-list"),
+    path("class-sessions/<uuid:session_id>/", views.ClassSessionDetailView.as_view(), name="session-detail"),
+    path("class-sessions/<uuid:session_id>/eligible-students/", views.EligibleStudentsView.as_view(), name="eligible-students"),
+]
