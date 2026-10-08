@@ -25,22 +25,20 @@ def secure_secret_key_check(app_configs, **kwargs):
 
 
 @register()
-def redis_cache_required_in_production(app_configs, **kwargs):
-    """Without a shared (Redis) cache, single-use QR tokens and rate limits
-    are per-process. Multi-worker production silently breaks attendance."""
+def shared_cache_required_in_production(app_configs, **kwargs):
+    """Without a *shared* cache, single-use QR tokens and rate limits are
+    per-process. Multi-worker/serverless production silently breaks attendance.
+
+    A Redis cache (REDIS_URL) or the PostgreSQL database cache both qualify;
+    the database cache keeps serverless deployments working without a separate
+    Redis service.
+    """
     if settings.DEBUG:
         return []
     errors = []
-    if not settings.REDIS_URL:
-        errors.append(
-            Error(
-                "REDIS_URL is not configured.",
-                hint="Production requires REDIS_URL (e.g. redis://redis:6379/0). LocMemCache is per-process and "
-                     "cannot guarantee single-use QR tokens across workers.",
-                id="fet.E002",
-            )
-        )
-    else:
+    backend = settings.CACHES["default"]["BACKEND"]
+
+    if settings.REDIS_URL:
         try:
             from django.core.cache import cache
 
@@ -53,6 +51,17 @@ def redis_cache_required_in_production(app_configs, **kwargs):
                     id="fet.E003",
                 )
             )
+    elif backend == "django.core.cache.backends.db.DatabaseCache":
+        return errors
+    else:
+        errors.append(
+            Error(
+                "No shared cache is configured in production.",
+                hint="Set REDIS_URL (e.g. redis://redis:6379/0) or configure the PostgreSQL database cache. "
+                     "LocMemCache is per-process and cannot guarantee single-use QR tokens across workers.",
+                id="fet.E002",
+            )
+        )
     return errors
 
 

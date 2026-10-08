@@ -186,9 +186,15 @@ ALLOWED_FILE_EXTENSIONS = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ---------------------------------------------------------------------------
-# Cache - Redis for temporary data (QR tokens, rate limits) when configured.
-# Falls back to local memory cache for development without Redis.
-# Production MUST set REDIS_URL (enforced by apps/core/checks.py).
+# Cache - shared storage for temporary data (QR tokens, rate limits).
+#
+# Preference order:
+#   1. Redis when REDIS_URL is set.
+#   2. In production, the PostgreSQL database cache (shared across serverless
+#      instances without an extra service). Create the table once with
+#      `python manage.py createcachetable`.
+#   3. Local memory cache for development.
+# Production requires a *shared* cache (enforced by apps/core/checks.py).
 # ---------------------------------------------------------------------------
 REDIS_URL = env("REDIS_URL", "")
 if REDIS_URL:
@@ -201,6 +207,14 @@ if REDIS_URL:
                 "socket_connect_timeout": 2,
                 "socket_timeout": 2,
             },
+        }
+    }
+elif IS_PRODUCTION and DATABASE_URL.startswith(("postgres://", "postgresql://")):
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+            "LOCATION": env("DB_CACHE_TABLE", "fet_cache_table"),
+            "TIMEOUT": env_int("CACHE_TIMEOUT", 300),
         }
     }
 else:
