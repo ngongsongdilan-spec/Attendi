@@ -1,404 +1,353 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Save, FileText, Users, Target, Code, Award, 
-  Presentation, Search, ChevronRight, X, CheckCircle, Star
-} from 'lucide-react';
-import { useAppContext } from '../../context/AppContext';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Loader2, Award, BookOpen, ArrowRight, TrendingUp, AlertCircle, Layers } from 'lucide-react';
+import attendanceApi from '../../lib/attendance';
+import { learningApi } from '../../lib/learning';
+import { normalizeRole } from '../../lib/profile';
+import AssessmentPanel from './AssessmentPanel';
 
-const ContinuousAssessment = ({ user }) => {
-  const { students } = useAppContext();
-  const [selectedStudent, setSelectedStudent] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [assessments, setAssessments] = useState({});
-  const [scores, setScores] = useState({
-    proposal: 0,
-    research: 0,
-    implementation: 0,
-    contribution: 0,
-    presentation: 0,
-  });
-  const [feedback, setFeedback] = useState('');
-  const [success, setSuccess] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
+const StaffAssessments = ({ user }) => {
+  const navigate = useNavigate();
+  const [courses, setCourses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [selected, setSelected] = useState('');
 
-  const userRole = user?.role || 'student';
-  const isLecturer = userRole === 'lecturer' || userRole === 'admin';
-
-  const lecturerName = user?.fullName || 'Lecturer';
-  const lecturerDepartment = user?.department || 'Engineering';
-
-  const getGroupForStudent = (matricule) => {
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
     try {
-      const groups = JSON.parse(localStorage.getItem('fet_groups') || '[]');
-      const g = groups.find(g => g.memberMatricules?.includes(matricule));
-      return g?.name || 'Unassigned';
-    } catch {
-      return 'Unassigned';
-    }
-  };
-
-  // Assessment targets come from the real student list
-  const assessmentStudents = students.map(s => ({
-    id: s.matricule,
-    name: s.fullName,
-    department: s.department,
-    level: s.level,
-    group: getGroupForStudent(s.matricule),
-  }));
-
-  useEffect(() => {
-    const saved = localStorage.getItem('fet_assessments');
-    if (saved) {
-      try {
-        setAssessments(JSON.parse(saved));
-      } catch {
-        setAssessments({});
-      }
+      const data = await attendanceApi.lecturerCourses();
+      setCourses(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError('Could not load your classrooms.');
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  const filteredStudents = assessmentStudents.filter(s =>
-    s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.id.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  useEffect(() => { load(); }, [load]);
 
-  const handleSelectStudent = (student) => {
-    setSelectedStudent(student);
-    setIsEditing(true);
-    const existing = assessments[student.id];
-    if (existing) {
-      setScores({
-        proposal: existing.scores?.proposal || 0,
-        research: existing.scores?.research || 0,
-        implementation: existing.scores?.implementation || 0,
-        contribution: existing.scores?.contribution || 0,
-        presentation: existing.scores?.presentation || 0,
-      });
-      setFeedback(existing.feedback || '');
-    } else {
-      setScores({ proposal: 0, research: 0, implementation: 0, contribution: 0, presentation: 0 });
-      setFeedback('');
-    }
-    setSuccess('');
-  };
-
-  const handleScoreChange = (category, value) => {
-    const numValue = Math.min(20, Math.max(0, parseInt(value) || 0));
-    setScores(prev => ({ ...prev, [category]: numValue }));
-  };
-
-  const calculateTotal = () => {
-    return Object.values(scores).reduce((sum, val) => sum + val, 0);
-  };
-
-  const handleSave = () => {
-    if (!selectedStudent) return;
-
-    const total = calculateTotal();
-    const assessmentData = {
-      studentId: selectedStudent.id,
-      studentName: selectedStudent.name,
-      department: selectedStudent.department,
-      level: selectedStudent.level,
-      group: selectedStudent.group,
-      scores: scores,
-      total: total,
-      feedback: feedback,
-      assessedBy: lecturerName,
-      date: new Date().toISOString().split('T')[0],
-      status: 'Published',
-    };
-
-    const updated = { ...assessments, [selectedStudent.id]: assessmentData };
-    setAssessments(updated);
-    localStorage.setItem('fet_assessments', JSON.stringify(updated));
-    
-    setSuccess(`✅ Assessment saved and released to ${selectedStudent.name}`);
-    setIsEditing(false);
-    setTimeout(() => setSuccess(''), 3000);
-  };
-
-  const getAssessmentStatus = (studentId) => {
-    const data = assessments[studentId];
-    if (!data) return 'Not Assessed';
-    return data.status || 'Draft';
-  };
-
-  const getStatusColor = (status) => {
-    switch(status) {
-      case 'Published': return 'fet-badge fet-badge-active';
-      case 'Draft': return 'fet-badge fet-badge-pending';
-      default: return 'fet-badge fet-badge-inactive';
-    }
-  };
-
-  const assessmentCategories = [
-    { key: 'proposal', label: 'Proposal', icon: FileText, max: 20 },
-    { key: 'research', label: 'Research', icon: Target, max: 20 },
-    { key: 'implementation', label: 'Implementation', icon: Code, max: 20 },
-    { key: 'contribution', label: 'Contribution', icon: Users, max: 20 },
-    { key: 'presentation', label: 'Presentation', icon: Presentation, max: 20 },
-  ];
-
-  const total = calculateTotal();
-
-  // ===== STUDENT VIEW: released results only =====
-  if (!isLecturer) {
-    const myResult = user?.matricule ? assessments[user.matricule] : null;
-
+  if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="fet-welcome-banner">
-          <div className="flex items-start justify-between flex-wrap gap-4">
-            <div>
-              <h2 className="text-2xl font-bold">Assessment Results</h2>
-              <p className="text-[#8683BA] mt-1">View your released continuous assessment results</p>
-              <p className="text-[#8683BA] text-sm mt-1">🎓 {user?.fullName || 'Student'} • {user?.matricule || ''}</p>
-            </div>
-            <div className="bg-white/10 rounded-xl px-4 py-2 text-center">
-              <p className="text-xs text-[#8683BA]">Total Score</p>
-              <p className="text-xl font-bold">{myResult ? `${myResult.total}/100` : '—'}</p>
-            </div>
-          </div>
-        </div>
-
-        {myResult ? (
-          <div className="fet-card p-6">
-            <div className="flex items-center justify-between mb-6 pb-4 border-b border-border-default">
-              <div>
-                <h3 className="text-xl font-bold text-text-primary" style={{ fontSize: '18px' }}>Result Breakdown</h3>
-                <p className="text-sm text-text-secondary">Assessed by {myResult.assessedBy} · {myResult.date}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm text-text-secondary">Overall</p>
-                <p className="text-3xl font-bold text-text-primary">{myResult.total}<span className="text-lg text-text-secondary">/100</span></p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {assessmentCategories.map((cat) => {
-                const Icon = cat.icon;
-                const score = myResult.scores?.[cat.key] || 0;
-                const pct = Math.round((score / cat.max) * 100);
-                return (
-                  <div key={cat.key} className="flex items-center gap-4 p-4 bg-page-bg rounded-xl">
-                    <div className="p-2 bg-primary/10 rounded-lg">
-                      <Icon size={20} className="text-primary" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-text-primary">{cat.label}</p>
-                      <div className="w-full h-2 bg-[#D9DADB] rounded-full mt-1">
-                        <div
-                          className="h-full bg-gradient-to-r from-primary to-[#8B5CF6] rounded-full"
-                          style={{ width: `${pct}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                    <p className="text-sm font-bold text-text-primary">{score}<span className="text-xs text-text-secondary">/{cat.max}</span></p>
-                  </div>
-                );
-              })}
-            </div>
-
-            {myResult.feedback && (
-              <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                <p className="text-sm font-semibold text-text-primary flex items-center gap-2"><Star size={16} /> Feedback</p>
-                <p className="text-sm text-text-secondary mt-1">{myResult.feedback}</p>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="fet-card p-6 text-center">
-            <FileText size={48} className="mx-auto text-text-secondary opacity-50" />
-            <p className="text-text-secondary mt-4">No results have been released yet.</p>
-            <p className="text-sm text-text-secondary">Your lecturer will publish your continuous assessment results here once available.</p>
-          </div>
-        )}
+      <div className="flex flex-col items-center justify-center py-20 gap-3">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-text-secondary">Loading your assessments…</p>
       </div>
     );
   }
 
-  // ===== LECTURER VIEW =====
+  if (courses.length === 0) {
+    return (
+      <div className="fet-card p-10 text-center">
+        <BookOpen size={40} className="mx-auto text-text-secondary opacity-40" />
+        <p className="mt-3 font-semibold text-text-primary">No classrooms yet</p>
+        <p className="text-sm text-text-secondary mt-1">
+          Create a classroom first, then manage its CA and exam marks.
+        </p>
+        <button onClick={() => navigate('/lessons')} className="fet-btn-primary mt-4">
+          Go to Classrooms
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="fet-welcome-banner">
-        <div className="flex items-start justify-between flex-wrap gap-4">
-          <div>
-            <h2 className="text-2xl font-bold">Continuous Assessment</h2>
-            <p className="text-[#8683BA] mt-1">Assess students across the entire project journey</p>
-            <p className="text-[#8683BA] text-sm mt-1">👨‍🏫 {lecturerName} • {lecturerDepartment}</p>
+    <div className="space-y-5">
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
+      )}
+
+      <div className="fet-card p-5">
+        <h3 className="text-[15px] font-semibold text-text-primary mb-1">Choose a classroom</h3>
+        <p className="text-xs text-text-secondary mb-4">Select the course whose CA / exam marks you want to manage.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {courses.map((c) => {
+            const active = selected === c.offering_id;
+            return (
+              <button
+                key={c.offering_id}
+                onClick={() => setSelected(c.offering_id)}
+                className={`text-left p-4 rounded-xl border transition-colors ${
+                  active ? 'border-primary bg-primary/5' : 'border-border-default hover:border-primary'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-text-primary text-sm">{c.course_code}</span>
+                  {active && <ArrowRight size={15} className="text-primary shrink-0" />}
+                </div>
+                <p className="text-xs text-text-secondary mt-0.5 line-clamp-2">{c.course_title}</p>
+                <p className="text-[11px] text-text-secondary mt-2">
+                  {c.assessments_count || 0} assessment{c.assessments_count === 1 ? '' : 's'}
+                  {c.ungraded_submissions > 0 && (
+                    <span className="ml-2 text-amber-600">{c.ungraded_submissions} to grade</span>
+                  )}
+                  {c.open_disputes > 0 && (
+                    <span className="ml-2 text-red-600">{c.open_disputes} dispute{c.open_disputes === 1 ? '' : 's'}</span>
+                  )}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {selected ? (
+        <div>
+          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+            <h3 className="text-[15px] font-semibold text-text-primary flex items-center gap-2">
+              <Award size={16} className="text-primary" />
+              {courses.find((c) => c.offering_id === selected)?.course_code} assessments
+            </h3>
+            <button
+              onClick={() => navigate(`/lessons/${selected}`)}
+              className="text-xs text-primary font-semibold hover:underline"
+            >
+              Open classroom →
+            </button>
           </div>
-          <div className="bg-white/10 rounded-xl px-4 py-2 text-center">
-            <p className="text-xs text-[#8683BA]">Students</p>
-            <p className="text-xl font-bold">{assessmentStudents.length}</p>
+          <AssessmentPanel offeringId={selected} user={user} />
+        </div>
+      ) : (
+        <p className="text-sm text-text-secondary text-center py-6">
+          Pick a classroom above to see and manage its assessments.
+        </p>
+      )}
+    </div>
+  );
+};
+
+const StudentAssessments = ({ user }) => {
+  const [data, setData] = useState({ assessments: [], groups: [] });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await learningApi.myAssessments();
+      setData({
+        assessments: Array.isArray(res?.assessments) ? res.assessments : [],
+        groups: Array.isArray(res?.groups) ? res.groups : [],
+      });
+    } catch (err) {
+      setError('Could not load your results.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const { assessments: items, groups } = data;
+  const totalScore = items.reduce((sum, a) => sum + Number(a.my_mark?.reported_score ?? a.my_mark?.score ?? 0), 0);
+  const openDisputes = items.filter((a) => a.my_mark?.dispute_status === 'OPEN').length;
+
+  return (
+    <div className="space-y-5">
+      <div className="fet-welcome-banner">
+        <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-[20px] md:text-[22px] font-bold">My Results</h2>
+            <p className="text-white/50 text-[13px]">Your released CA and exam marks</p>
+            {openDisputes > 0 && (
+              <p className="text-white/60 text-[12px] mt-1 flex items-center gap-1.5">
+                <AlertCircle size={13} /> {openDisputes} query{openDisputes === 1 ? '' : 'ies'} with your lecturer
+              </p>
+            )}
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl px-5 py-3 text-center min-w-[110px] border border-white/10">
+            <p className="text-[11px] text-white/50 font-medium uppercase tracking-wider">Total</p>
+            <p className="text-[26px] font-bold text-white leading-tight">{totalScore}</p>
           </div>
         </div>
       </div>
 
-      {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
-          <CheckCircle size={18} /> {success}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
+      )}
+
+      {loading && (
+        <div className="flex justify-center py-12"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
+      )}
+
+      {!loading && groups.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-[15px] font-semibold text-text-primary flex items-center gap-2">
+            <Layers size={16} className="text-primary" /> Combined grades
+          </h3>
+          {groups.map((g) => {
+            const mine = (g.students || [])[0];
+            return (
+              <div key={g.id} className="fet-card p-5">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <h4 className="font-bold text-text-primary">{g.title}</h4>
+                    <p className="text-xs text-text-secondary mt-0.5">
+                      {g.course_code} · out of {g.maximum_score} · {g.member_count} part{g.member_count === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-text-secondary">Your grade</p>
+                    <p className="text-2xl font-bold text-text-primary">
+                      {mine?.total ?? '—'}
+                      <span className="text-sm font-normal text-text-secondary"> / {g.maximum_score}</span>
+                    </p>
+                  </div>
+                </div>
+                {mine?.breakdown?.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-border-default space-y-1.5">
+                    {mine.breakdown.map((b) => (
+                      <div key={b.assessment_id} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-text-secondary">
+                          {b.title}
+                          {b.raw_score != null && (
+                            <span className="text-xs"> (you scored {b.raw_score} / {b.marking_scale})</span>
+                          )}
+                        </span>
+                        <span className={b.points != null ? 'font-semibold text-text-primary' : 'text-text-secondary'}>
+                          {b.points != null ? `${b.points} / ${b.contributes_out_of}` : 'not marked'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
-      <div className="fet-card p-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary" size={18} />
-            <input
-              type="text"
-              placeholder="Search students by name or matricule..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 fet-input"
-            />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button className="fet-btn-secondary text-sm">
-              All ({assessmentStudents.length})
-            </button>
-            <button className="fet-btn-success text-sm">
-              Assessed ({Object.keys(assessments).length})
-            </button>
-            <button className="fet-btn-danger text-sm">
-              Pending ({assessmentStudents.length - Object.keys(assessments).length})
-            </button>
-          </div>
+      {!loading && items.length === 0 && groups.length === 0 && (
+        <div className="fet-card p-10 text-center">
+          <Award size={44} className="mx-auto opacity-40 text-text-secondary" />
+          <p className="mt-3 font-semibold text-text-primary">No results released yet</p>
+          <p className="text-sm text-text-secondary mt-1">
+            Your lecturer will publish your continuous assessment and exam results here.
+          </p>
         </div>
-      </div>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1">
-          <div className="fet-card p-4">
-            <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3">Students</h3>
-            <div className="space-y-2 max-h-[400px] overflow-y-auto">
-              {filteredStudents.map((student) => {
-                const hasAssessment = !!assessments[student.id];
-                return (
-                  <button
-                    key={student.id}
-                    onClick={() => handleSelectStudent(student)}
-                    className={`w-full text-left p-3 rounded-xl transition-colors ${
-                      selectedStudent?.id === student.id
-                        ? 'bg-primary/10 border-2 border-primary'
-                        : 'bg-page-bg hover:bg-[#E7E8E9]'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-medium text-text-primary">{student.name}</p>
-                        <p className="text-xs text-text-secondary">{student.id} • {student.group}</p>
-                      </div>
-                      <div className="text-right">
-                        <span className={`${getStatusColor(getAssessmentStatus(student.id))}`}>
-                          {getAssessmentStatus(student.id)}
-                        </span>
-                      </div>
-                    </div>
-                    {hasAssessment && (
-                      <div className="mt-1">
-                        <div className="w-full h-1.5 bg-page-bg rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-gradient-to-r from-primary to-[#8B5CF6] rounded-full"
-                            style={{ width: `${(assessments[student.id]?.total || 0)}%` }}
-                          ></div>
-                        </div>
-                        <p className="text-xs text-text-secondary mt-0.5">
-                          Score: {assessments[student.id]?.total || 0}/100
-                        </p>
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-              {filteredStudents.length === 0 && (
-                <p className="text-center text-text-secondary py-4">No students found</p>
-              )}
+      {!loading && items.map((a) => (
+        <div key={a.id} className="fet-card p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="font-bold text-text-primary">{a.title}</h4>
+                <span className="text-xs font-medium px-2.5 py-1 rounded-full border border-border-default text-text-secondary">
+                  {a.category === 'EXAM' ? 'Exam' : 'CA'}
+                </span>
+                <span className="text-xs font-medium px-2.5 py-1 rounded-full border border-border-default text-text-secondary">
+                  {a.course_code}
+                </span>
+                {a.my_mark?.dispute_status === 'OPEN' && (
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-full border bg-amber-50 text-amber-700 border-amber-200">
+                    Query raised
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-text-secondary mt-1.5">
+                Out of {a.maximum_score}
+                {a.is_converted && <span> · your mark is out of {a.marking_scale_value}</span>}
+                {a.weight ? ` · weight ${a.weight}%` : ''}
+                {a.published_at ? ` · released ${new Date(a.published_at).toLocaleDateString()}` : ''}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-text-secondary">Your score</p>
+              <p className="text-2xl font-bold text-text-primary">
+                {a.my_mark?.reported_score ?? a.my_mark?.score ?? '—'}
+                <span className="text-sm font-normal text-text-secondary"> / {a.maximum_score}</span>
+              </p>
             </div>
           </div>
-        </div>
 
-        <div className="lg:col-span-2">
-          <div className="fet-card p-6">
-            {selectedStudent ? (
-              <>
-                <div className="flex items-center justify-between mb-6 pb-4 border-b border-border-default">
-                  <div>
-                    <h3 className="text-xl font-bold text-text-primary" style={{ fontSize: '18px' }}>{selectedStudent.name}</h3>
-                    <p className="text-sm text-text-secondary">
-                      {selectedStudent.id} • Level {selectedStudent.level} • {selectedStudent.department}
-                    </p>
-                    <p className="text-sm text-text-secondary">Group: {selectedStudent.group}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm text-text-secondary">Total Score</p>
-                    <p className="text-3xl font-bold text-text-primary">{total}<span className="text-lg text-text-secondary">/100</span></p>
-                  </div>
-                </div>
+          {a.my_mark?.comment && (
+            <p className="mt-3 text-sm text-text-secondary bg-page-bg rounded-lg p-3">{a.my_mark.comment}</p>
+          )}
 
-                <div className="space-y-4">
-                  {assessmentCategories.map((cat) => {
-                    const Icon = cat.icon;
-                    return (
-                      <div key={cat.key} className="flex items-center gap-4 p-4 bg-page-bg rounded-xl">
-                        <div className="p-2 bg-primary/10 rounded-lg">
-                          <Icon size={20} className="text-primary" />
-                        </div>
-                        <div className="flex-1">
-                          <label className="block text-sm font-medium text-text-primary">
-                            {cat.label} (0-{cat.max})
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            max={cat.max}
-                            value={scores[cat.key]}
-                            onChange={(e) => handleScoreChange(cat.key, e.target.value)}
-                            className="mt-1 w-24 px-3 py-1 fet-input"
-                          />
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-semibold text-text-primary">{scores[cat.key]}</p>
-                          <p className="text-xs text-text-secondary">/ {cat.max}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+          {a.my_mark?.dispute_status === 'OPEN' && (
+            <p className="mt-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              You reported: &ldquo;{a.my_mark.dispute_reason}&rdquo; — waiting for your lecturer.
+            </p>
+          )}
+          {a.my_mark?.dispute_status === 'RESOLVED' && (
+            <div className="mt-3 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+              <span className="font-semibold">Lecturer replied: </span>{a.my_mark.dispute_response}
+            </div>
+          )}
 
-                <div className="mt-6">
-                  <label className="fet-label mb-2">Feedback</label>
-                  <textarea
-                    value={feedback}
-                    onChange={(e) => setFeedback(e.target.value)}
-                    placeholder="Enter feedback for the student..."
-                    className="w-full px-4 py-3 fet-input resize-none"
-                    rows={3}
-                  />
-                </div>
-
-                <div className="mt-6 pt-4 border-t border-border-default flex justify-end">
-                  <button
-                    onClick={handleSave}
-                    className="fet-btn-primary flex items-center gap-2"
-                  >
-                    <Save size={18} />
-                    Save & Release Result
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="text-center py-12">
-                <FileText size={48} className="mx-auto text-text-secondary opacity-50" />
-                <p className="text-text-secondary mt-4">Select a student to assess</p>
-                <p className="text-sm text-text-secondary">Click on a student from the list to start</p>
-              </div>
-            )}
+          <div className="mt-3">
+            <ReportDispute assessment={a} onDone={load} />
           </div>
         </div>
+      ))}
+    </div>
+  );
+};
+
+const ReportDispute = ({ assessment, onDone }) => {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const status = assessment.my_mark?.dispute_status;
+  if (!assessment.my_mark || status === 'OPEN' || status === 'RESOLVED') return null;
+
+  const submit = async () => {
+    if (!text.trim()) {
+      setErr('Tell your lecturer what is wrong.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await learningApi.raiseDispute(assessment.my_mark.id, text.trim());
+      setOpen(false);
+      setText('');
+      setErr('');
+      onDone();
+    } catch (e) {
+      setErr(e.response?.data?.error?.message || 'Could not send the report.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="text-sm text-primary hover:underline flex items-center gap-1.5"
+      >
+        <TrendingUp size={15} /> This mark looks wrong — report it
+      </button>
+    );
+  }
+
+  return (
+    <div className="p-4 rounded-xl bg-page-bg border border-border-default space-y-2">
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        className="fet-input min-h-[70px]"
+        placeholder="Explain what is wrong with this mark…"
+      />
+      {err && <p className="text-xs text-red-600">{err}</p>}
+      <div className="flex justify-end gap-2">
+        <button onClick={() => setOpen(false)} className="fet-btn-secondary text-sm">Cancel</button>
+        <button onClick={submit} disabled={busy} className="fet-btn-primary text-sm">
+          {busy ? <Loader2 size={14} className="animate-spin" /> : null} Send report
+        </button>
       </div>
     </div>
   );
+};
+
+const ContinuousAssessment = ({ user }) => {
+  const role = normalizeRole(user?.role);
+  const isStaff = role === 'lecturer' || role === 'admin';
+  return isStaff ? <StaffAssessments user={user} /> : <StudentAssessments user={user} />;
 };
 
 export default ContinuousAssessment;

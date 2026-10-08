@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { mockStudents, mockLecturers, mockAdmin } from '../../data/MockData';
+import { authApi } from '../../lib/auth';
 import { Eye, EyeOff, ArrowRight, GraduationCap, Shield, BookOpen } from 'lucide-react';
 
 const Login = ({ onLogin, onSwitchToSignUp }) => {
@@ -10,7 +10,7 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
@@ -23,52 +23,31 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
       return;
     }
 
-    let foundUser = null;
+    try {
+      // Determine if identifier is email or matricule
+      const payload = id.includes('@') ? { email: id, password } : { matricule: id, password };
+      const response = await authApi.login(payload);
+      // Tokens are set as httpOnly cookies by the backend — JS never sees them.
+      const user = response.data?.data ?? response.data;
 
-    const student = mockStudents.find(s =>
-      s.matricule.toLowerCase() === id.toLowerCase() || s.email.toLowerCase() === id.toLowerCase()
-    );
-    if (student) {
-      if (password !== student.password) {
-        setError('Incorrect password. Please try again.');
-        setIsLoading(false);
-        return;
-      }
-      foundUser = { ...student, role: 'student' };
-    }
+      // User snapshot only (cached for display; re-validated via /me on load).
+      localStorage.setItem('fet_auth', 'true');
+      localStorage.setItem('fet_user', JSON.stringify(user));
+      localStorage.setItem('fet_user_role', user.role || 'student');
+      localStorage.setItem('fet_user_name', user.fullName || user.email?.split('@')[0] || 'User');
 
-    const lecturer = mockLecturers.find(l =>
-      (l.staffNumber && l.staffNumber.toLowerCase() === id.toLowerCase()) ||
-      l.email.toLowerCase() === id.toLowerCase()
-    );
-    if (lecturer) {
-      if (password !== lecturer.password) {
-        setError('Incorrect password. Please try again.');
-        setIsLoading(false);
-        return;
-      }
-      foundUser = { ...lecturer, role: 'lecturer' };
-    }
-
-    if (!foundUser && (mockAdmin.email.toLowerCase() === id.toLowerCase())) {
-      if (password !== mockAdmin.password) {
-        setError('Incorrect password. Please try again.');
-        setIsLoading(false);
-        return;
-      }
-      foundUser = { ...mockAdmin, role: 'admin' };
-    }
-
-    if (!foundUser) {
-      setError('No account found with that identifier. Check with your faculty office or register below.');
       setIsLoading(false);
-      return;
-    }
-
-    setTimeout(() => {
+      onLogin(user);
+    } catch (err) {
       setIsLoading(false);
-      onLogin(foundUser);
-    }, 400);
+      if (err.response?.data?.error?.message) {
+        setError(err.response.data.error.message);
+      } else if (err.response?.data?.message) {
+        setError(err.response.data.message);
+      } else {
+        setError('Invalid credentials. Please check and try again.');
+      }
+    }
   };
 
   return (
@@ -102,12 +81,12 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label htmlFor="identifier" className="fet-label">
-                Matricule, Staff Number or Email
+                Matricule or Email
               </label>
               <input
                 id="identifier"
                 type="text"
-                placeholder="e.g., FE24A389 or LEC001"
+                placeholder="e.g., FE23A001 or name@example.com"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 className="fet-input"
@@ -172,7 +151,7 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
           </form>
 
           <p className="text-center mt-6 text-[13px] text-text-secondary">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <button onClick={onSwitchToSignUp} className="text-primary font-semibold hover:opacity-80 transition-opacity">Register</button>
           </p>
 
@@ -185,7 +164,7 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
                   <GraduationCap size={13} className="text-info" />
                 </div>
                 <p className="text-[12px] text-text-secondary">
-                  Student — <span className="font-semibold text-text-primary">FE24A389</span> / <span className="font-semibold text-text-primary">student123</span>
+                  Student — <span className="font-semibold text-text-primary">FE23A001</span> / <span className="font-semibold text-text-primary">student123</span>
                 </p>
               </div>
               <div className="flex items-center gap-2.5">
@@ -193,7 +172,7 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
                   <BookOpen size={13} style={{ color: '#3F35B5' }} />
                 </div>
                 <p className="text-[12px] text-text-secondary">
-                  Lecturer — <span className="font-semibold text-text-primary">LEC001</span> / <span className="font-semibold text-text-primary">lecturer123</span>
+                  Lecturer — <span className="font-semibold text-text-primary">dr.smith@fet.edu</span> / <span className="font-semibold text-text-primary">lecturer123</span>
                 </p>
               </div>
               <div className="flex items-center gap-2.5">
@@ -201,7 +180,7 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
                   <Shield size={13} className="text-danger" />
                 </div>
                 <p className="text-[12px] text-text-secondary">
-                  Admin — <span className="font-semibold text-text-primary">admin@fet.local</span> / <span className="font-semibold text-text-primary">admin123</span>
+                  Admin — <span className="font-semibold text-text-primary">admin@fet.edu</span> / <span className="font-semibold text-text-primary">admin123</span>
                 </p>
               </div>
             </div>

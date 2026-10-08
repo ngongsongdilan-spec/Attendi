@@ -1,554 +1,861 @@
-import React, { useState, useEffect } from 'react';
-import { useAppContext } from '../../context/AppContext';
-import { Calendar, Users, CheckCircle, Clock, AlertCircle, QrCode, Plus, Eye, X, Monitor, Square, Pencil } from 'lucide-react';
+﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  Calendar, Clock, QrCode, Plus,
+  Eye, X, Monitor, Square, Loader2, RefreshCw, Pencil, Award, CreditCard, Trash2, AlertCircle,
+  UserCheck, Search, ChevronDown, CheckCircle2, ClipboardCheck,
+} from 'lucide-react';
+import attendanceApi from '../../lib/attendance';
 import AttendanceSession from './AttendanceSession';
 import QRScanner from './QRScanner';
 import StationQR from './StationQR';
-import AttendanceTable from './AttendanceTable';
+import QRCodeDisplay from './QRCode';
+import {
+  SectionHeader, Card, CardHead, CardBody, CardFoot, Eyebrow, Pill, Tag, Callout, EmptyState,
+} from '../UI';
 
-const loadCorrections = () => {
-  try {
-    return JSON.parse(localStorage.getItem('fet_attendance_corrections') || '[]');
-  } catch {
-    return [];
+/** The searchable roster used when picking students to act as QR stations. */
+const StationPickerBody = ({ roster, picked, onToggle, onSave, saving }) => {
+  const [term, setTerm] = useState('');
+  const q = term.trim().toLowerCase();
+  const visible = roster.filter((s) => (
+    !q
+    || (s.full_name || '').toLowerCase().includes(q)
+    || (s.email || '').toLowerCase().includes(q)
+    || (s.student_number || '').toLowerCase().includes(q)
+  ));
+
+  return (
+    <div>
+      <div className="relative mb-2">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+        <input
+          type="text"
+          value={term}
+          onChange={(e) => setTerm(e.target.value)}
+          placeholder="Search by name, matricule or email"
+          className="fet-input pl-9"
+        />
+      </div>
+
+      {roster.length === 0 ? (
+        <p className="py-4 text-center text-[12.5px] text-text-secondary">
+          No students are enrolled in this class yet.
+        </p>
+      ) : (
+        <>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11.5px] text-text-secondary">
+              {picked.length} selected
+              {q ? ` · ${visible.length} match "${term}"` : ` · ${visible.length} available`}
+            </span>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => visible.forEach((s) => onToggle(s.id))} className="text-[11.5px] text-primary hover:underline">
+                Select all
+              </button>
+              <button type="button" onClick={() => visible.forEach((s) => { if (picked.includes(s.id)) onToggle(s.id); })} className="text-[11.5px] text-text-secondary hover:underline">
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
+            {visible.length === 0 ? (
+              <p className="py-4 text-center text-[12.5px] text-text-secondary">
+                No student matches that search.
+              </p>
+            ) : visible.map((s) => (
+              <label
+                key={s.id}
+                className="flex cursor-pointer items-center gap-3 rounded-md border border-border-default bg-surface p-2 transition-colors hover:border-primary"
+              >
+                <input
+                  type="checkbox"
+                  checked={picked.includes(s.id)}
+                  onChange={() => onToggle(s.id)}
+                  className="h-4 w-4 accent-primary"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium text-text-primary">{s.full_name}</span>
+                  <span className="mono block truncate text-[11.5px] text-text-secondary">
+                    {s.student_number || 'no matricule'}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <div className="mt-3 flex justify-end gap-2">
+            <button type="button" onClick={onSave} disabled={saving || picked.length === 0} className="fet-btn-primary">
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <UserCheck size={14} />}
+              Assign {picked.length || ''} station{picked.length === 1 ? '' : 's'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+const getRole = (user) => (user?.role || 'student').toLowerCase();
+const isLecturerRole = (user) => {
+  const r = getRole(user);
+  return r === 'lecturer' || r === 'admin' || r.endsWith('_admin');
+};
+const secondsLeft = (ms, now) => Math.max(0, Math.round((ms - now) / 1000));
+const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString() : '');
+const fmtTime = (iso) => (iso ? new Date(iso).toLocaleTimeString() : '');
+
+const getStatusColor = (status) => {
+  switch (status) {
+    case 'ACTIVE': return 'fet-badge fet-badge-active';
+    case 'CLOSED': return 'fet-badge fet-badge-inactive';
+    case 'EXPIRED': return 'fet-badge fet-badge-danger';
+    default: return 'fet-badge fet-badge-inactive';
+  }
+};
+const getRecordStatusColor = (status) => {
+  switch (status) {
+    case 'PRESENT': return 'fet-badge fet-badge-present';
+    case 'LATE': return 'fet-badge fet-badge-late';
+    case 'ABSENT': return 'fet-badge fet-badge-absent';
+    default: return 'fet-badge fet-badge-absent';
   }
 };
 
-const AttendanceDashboard = ({ user }) => {
-  const { 
-    attendanceSessions, 
-    attendanceRecords, 
-    getActiveSession,
-    getAttendanceForSession,
-    updateAttendanceRecord,
-    closeAttendanceSession
-  } = useAppContext();
-  
-  const [activeTab, setActiveTab] = useState('current');
-  const [showCreateSession, setShowCreateSession] = useState(false);
-  const [showQRScanner, setShowQRScanner] = useState(false);
-  const [selectedSession, setSelectedSession] = useState(null);
-  const [isStation, setIsStation] = useState(false);
-  const [showQRDisplay, setShowQRDisplay] = useState(false);
-  const [projectorMode, setProjectorMode] = useState(false);
+/* ---------------------------- STUDENT VIEW ---------------------------- */
+const StudentAttendance = ({ user }) => {
+  const [station, setStation] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [points, setPoints] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showScanner, setShowScanner] = useState(false);
+  const [error, setError] = useState('');
   const [now, setNow] = useState(Date.now());
-  const [corrections, setCorrections] = useState(loadCorrections);
-  const [correctingRecord, setCorrectingRecord] = useState(null);
-  const [correctionStatus, setCorrectionStatus] = useState('Present');
-  const [correctionReason, setCorrectionReason] = useState('');
 
-  const userRole = user?.role || 'student';
-  const isLecturer = userRole === 'lecturer' || userRole === 'admin';
-  
-  const activeSession = getActiveSession();
-  const isStudentStation = activeSession?.stationStudentIds?.includes(user?.matricule);
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
+  const load = useCallback(async () => {
+    try {
+      const [stationData, historyData, pointsData] = await Promise.all([
+        attendanceApi.myStation(),
+        attendanceApi.myAttendance(),
+        attendanceApi.myPoints(),
+      ]);
+      setStation(stationData || null);
+      setHistory(Array.isArray(historyData) ? historyData : []);
+      setPoints(pointsData);
+      setError('');
+    } catch (err) {
+      // Any failure must not leave a stale station banner on screen.
+      setStation(null);
+      setError(err.response?.data?.error?.message || 'Could not load attendance data.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (isStudentStation && activeSession) {
-      setIsStation(true);
-    } else {
-      setIsStation(false);
-    }
-  }, [isStudentStation, activeSession]);
+    load();
+    const timer = setInterval(load, 8000);
+    return () => clearInterval(timer);
+  }, [load]);
 
-  const studentRecords = user?.matricule 
-    ? attendanceRecords.filter(r => r.studentId === user.matricule)
-    : [];
+  // Tick every second so an expired station drops the banner immediately,
+  // not up to 8s later on the next poll.
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
-  const sessionRecords = selectedSession 
-    ? getAttendanceForSession(selectedSession.id) 
-    : [];
+  // Only treat the station as live while its attendance window is still open.
+  // Requires a real station object with a session id, so a stray/truthy
+  // payload can never render the banner.
+  const liveStation = (() => {
+    if (!station || typeof station !== 'object' || !station.attendance_session_id) return null;
+    if (!station.session_expires_at) return station;
+    return now < new Date(station.session_expires_at).getTime() ? station : null;
+  })();
 
-  const getStatusColor = (status) => {
-    switch(status) {
-      case 'ACTIVE': return 'fet-badge fet-badge-active';
-      case 'CLOSED': return 'fet-badge fet-badge-inactive';
-      case 'EXPIRED': return 'fet-badge fet-badge-danger';
-      default: return 'fet-badge fet-badge-inactive';
-    }
-  };
-
-  const getRecordStatusColor = (status) => {
-    switch(status) {
-      case 'PRESENT': return 'fet-badge fet-badge-present';
-      case 'LATE': return 'fet-badge fet-badge-late';
-      case 'ABSENT': return 'fet-badge fet-badge-absent';
-      default: return 'fet-badge fet-badge-absent';
-    }
-  };
-
-  const handleCorrectAttendance = (record) => {
-    if (!correctionReason) {
-      alert('Please provide a reason for the correction.');
-      return;
-    }
-    const newStatus = correctionStatus.toUpperCase();
-    updateAttendanceRecord(record.id, {
-      status: newStatus,
-      corrected: true,
-      previousStatus: record.status,
-    });
-
-    const correction = {
-      id: Date.now(),
-      recordId: record.id,
-      studentId: record.studentId,
-      courseCode: record.courseCode,
-      previousStatus: record.status,
-      newStatus: correctionStatus.toUpperCase(),
-      reason: correctionReason,
-      correctedBy: user?.fullName || 'Lecturer',
-      date: new Date().toISOString(),
-    };
-    const updated = [correction, ...corrections];
-    localStorage.setItem('fet_attendance_corrections', JSON.stringify(updated));
-    setCorrections(updated);
-    setCorrectingRecord(null);
-    setCorrectionReason('');
-    setCorrectionStatus('Present');
-  };
-
-  const handleCloseSession = (session) => {
-    if (window.confirm('Close this attendance session?')) {
-      closeAttendanceSession(session.id);
-      setSelectedSession(null);
-      setShowQRDisplay(false);
-    }
-  };
-
-  const secondsLeft = (ms) => Math.max(0, Math.round((ms - now) / 1000));
-
-  // ===== STUDENT VIEW =====
-  if (!isLecturer) {
-    return (
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="fet-welcome-banner">
-          <h2 className="text-2xl font-bold">Attendance</h2>
-          <p className="text-[#8683BA] mt-1">Mark your attendance</p>
-          <p className="text-[#8683BA] text-xs mt-1">Scan QR code displayed by your lecturer</p>
-        </div>
-
-        {/* Station QR Display - students who are temporary stations */}
-        {isStation && activeSession && (
-          <div className="fet-card p-2">
-            <p className="text-xs font-semibold text-primary px-4 pt-3">You are a temporary QR station for this session. You will return to normal attendance after it ends.</p>
-            <StationQR session={activeSession} user={user} />
-          </div>
-        )}
-
-        {/* Active Session Card */}
-        {activeSession && (
-          <div className="fet-card p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-text-primary">{activeSession.courseCode}</h3>
-                <p className="text-text-secondary">{activeSession.courseName}</p>
-                <p className="text-sm text-text-secondary">Class: {activeSession.className}</p>
-                <p className="text-sm text-text-secondary">Mode: {activeSession.mode === 'STATION_BASED' ? 'Station-Based' : 'Projected QR'}</p>
-                <span className={`${getStatusColor(activeSession.status)}`}>
-                  {activeSession.status}
-                </span>
-              </div>
-              <div className="text-right">
-                <p className="text-sm text-text-secondary">Token expires in</p>
-                <p className="text-2xl font-bold text-text-primary" id="token-countdown">
-                  {secondsLeft(activeSession.tokenExpiresAt)}s
-                </p>
-                <p className="text-xs text-text-secondary text-right mt-1">manual code: {activeSession.token}</p>
-              </div>
-            </div>
-
-            {/* Students ONLY scan QR - NEVER generate */}
-            {!isStation && (
-              <button
-                onClick={() => setShowQRScanner(true)}
-                className="mt-4 w-full fet-btn-primary"
-              >
-                <QrCode size={20} />
-                Scan QR Code
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* No Active Session */}
-        {!activeSession && (
-          <div className="fet-card p-6 text-center">
-            <QrCode size={48} className="mx-auto text-text-secondary opacity-50" />
-            <p className="text-text-secondary mt-2">No active attendance session</p>
-            <p className="text-sm text-text-secondary">Wait for your lecturer to start a session</p>
-          </div>
-        )}
-
-        {/* Attendance History */}
-        <div className="fet-card overflow-hidden">
-          <div className="p-6 border-b border-border-default">
-            <h3 className="text-lg font-semibold text-text-primary">Attendance History</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="fet-table">
-              <thead>
-                <tr>
-                  <th>Course</th>
-                  <th>Date</th>
-                  <th>Status</th>
-                  <th>Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {studentRecords.map((record) => (
-                  <tr key={record.id}>
-                    <td className="font-medium">{record.courseCode}</td>
-                    <td>{record.date}</td>
-                    <td>
-                      <span className={getRecordStatusColor(record.status)}>
-                        {record.status}
-                      </span>
-                    </td>
-                    <td>{record.time}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {studentRecords.length === 0 && (
-            <div className="text-center py-8 text-text-secondary">No attendance records found</div>
-          )}
-        </div>
-
-        {/* QR Scanner Modal */}
-        {showQRScanner && (
-          <QRScanner 
-            session={activeSession} 
-            user={user} 
-            onClose={() => setShowQRScanner(false)}
-            onScan={(result) => {
-              if (result.success) {
-                setShowQRScanner(false);
-              }
-            }}
-          />
-        )}
-      </div>
-    );
-  }
-
-  // ===== LECTURER VIEW =====
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="fet-welcome-banner">
-        <div className="flex items-start justify-between">
+        <h2 className="text-2xl font-bold">Attendance</h2>
+        <p className="text-[#8683BA] mt-1">Mark your attendance</p>
+        <p className="text-[#8683BA] text-xs mt-1">Scan the QR code displayed by your lecturer</p>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-danger px-4 py-3 rounded-xl text-sm">{error}</div>
+      )}
+
+      {liveStation && liveStation.attendance_session_id && (
+        <StationQR sessionId={liveStation.attendance_session_id} station={liveStation} />
+      )}
+
+      <div className="fet-card p-6">
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h2 className="text-2xl font-bold">Attendance Management</h2>
-            <p className="text-[#8683BA] mt-1">Manage attendance for your courses</p>
-            <p className="text-[#8683BA] text-xs mt-1">Generate QR codes for students to scan</p>
+            <h3 className="text-lg font-bold text-text-primary">Check-in now</h3>
+            <p className="text-sm text-text-secondary">
+              {liveStation ? 'You are a station â€” classmates scan your QR.' : 'Scan the QR your lecturer is showing to record your presence.'}
+            </p>
           </div>
-          <button
-            onClick={() => setShowCreateSession(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-white font-medium transition-colors"
-          >
-            <Plus size={18} />
-            Create Session
-          </button>
+          {!liveStation && (
+            <button onClick={() => setShowScanner(true)} className="fet-btn-primary">
+              <QrCode size={20} /> Scan QR Code
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 border-b border-border-default">
-        <button
-          onClick={() => setActiveTab('current')}
-          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            activeTab === 'current'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-secondary hover:text-text-primary'
-          }`}
-        >
-          Current Sessions
-        </button>
-        <button
-          onClick={() => setActiveTab('history')}
-          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            activeTab === 'history'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-secondary hover:text-text-primary'
-          }`}
-        >
-          History
-        </button>
-        <button
-          onClick={() => setActiveTab('corrections')}
-          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            activeTab === 'corrections'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-secondary hover:text-text-primary'
-          }`}
-        >
-          Corrections ({corrections.length})
-        </button>
-      </div>
-
-      {/* Current Sessions */}
-      {activeTab === 'current' && (
-        <div className="space-y-4">
-          {attendanceSessions.filter(s => s.status === 'ACTIVE').map((session) => {
-            const records = getAttendanceForSession(session.id);
-            const totalStudents = 45;
-            const present = records.length;
-            
-            return (
-              <div key={session.id} className="fet-card p-6 hover:shadow-md transition-shadow">
-                <div className="flex items-start justify-between flex-wrap gap-4">
-                  <div>
-                    <h3 className="text-lg font-bold text-text-primary">{session.courseCode}</h3>
-                    <p className="text-text-secondary">{session.courseName}</p>
-                    <p className="text-sm text-text-secondary">Class: {session.className}</p>
-                    <p className="text-sm text-text-secondary">Mode: {session.mode === 'STATION_BASED' ? `Station-Based (${session.stationStudentIds?.length || 0} stations)` : 'Projected QR'}</p>
-                    <div className="flex gap-4 mt-2">
-                      <span className="text-sm text-text-secondary">Present: <span className="font-bold text-success">{present}</span></span>
-                      <span className="text-sm text-text-secondary">Total: <span className="font-bold">{totalStudents}</span></span>
-                      <span className="text-sm text-text-secondary">Percentage: <span className="font-bold">{Math.round((present/totalStudents)*100)}%</span></span>
-                    </div>
-                    <p className="text-xs text-warning mt-1">Session expires in {secondsLeft(session.sessionExpiresAt)}s</p>
-                  </div>
-                  <div className="text-right">
-                    <span className={getStatusColor(session.status)}>
-                      {session.status}
-                    </span>
-                    <div className="mt-2 flex gap-2">
-                      <button
-                        onClick={() => {
-                          setSelectedSession(session);
-                          setShowQRDisplay(true);
-                        }}
-                        className="px-3 py-1 bg-[#0F0B3D] text-white rounded-lg text-xs font-medium hover:bg-[#3F35B5] flex items-center gap-1"
-                      >
-                        <Monitor size={14} /> Project QR
-                      </button>
-                      <button
-                        onClick={() => setSelectedSession(session)}
-                        className="px-3 py-1 bg-primary text-white rounded-lg text-xs font-medium hover:bg-primary-dark flex items-center gap-1"
-                      >
-                        <QrCode size={14} /> View
-                      </button>
-                      <button
-                        onClick={() => handleCloseSession(session)}
-                        className="px-3 py-1 bg-danger text-white rounded-lg text-xs font-medium hover:bg-red-700 flex items-center gap-1"
-                      >
-                        <Square size={14} /> Close
-                      </button>
-                    </div>
-                  </div>
-                </div>
+      {points && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="fet-card p-5">
+            <div className="flex items-center gap-3">
+              <Award size={24} className="text-primary" />
+              <div>
+                <p className="text-2xl font-bold text-text-primary">{points.total_points}</p>
+                <p className="text-xs text-text-secondary">Total points</p>
               </div>
-            );
-          })}
-          {attendanceSessions.filter(s => s.status === 'ACTIVE').length === 0 && (
-            <div className="fet-card p-6 text-center">
-              <Calendar size={48} className="mx-auto text-text-secondary opacity-50" />
-              <p className="text-text-secondary mt-2">No active sessions</p>
-              <button
-                onClick={() => setShowCreateSession(true)}
-                className="mt-2 text-primary hover:underline font-medium"
-              >
-                Create one now
-              </button>
             </div>
-          )}
-
-          {/* Expired sessions notice */}
-          {attendanceSessions.filter(s => s.status === 'EXPIRED').length > 0 && (
-            <div className="bg-red-50 border border-red-200 text-danger px-4 py-3 rounded-xl text-sm">
-              {attendanceSessions.filter(s => s.status === 'EXPIRED').length} session(s) have expired. Start a new session to continue taking attendance.
+          </div>
+          <div className="fet-card p-5">
+            <div className="flex items-center gap-3">
+              <CreditCard size={24} className="text-primary" />
+              <div>
+                <p className="text-sm font-semibold text-text-primary">
+                  {points.is_special_day ? `x${points.special_day_multiplier} (birthday!)` : 'x1'}
+                </p>
+                <p className="text-xs text-text-secondary">Multiplier today</p>
+              </div>
             </div>
-          )}
+          </div>
+          <div className="fet-card p-5">
+            <div className="flex items-center gap-3">
+              <Calendar size={24} className="text-primary" />
+              <div>
+                <p className="text-sm font-semibold text-text-primary">{history.length}</p>
+                <p className="text-xs text-text-secondary">Sessions attended</p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* History */}
-      {activeTab === 'history' && (
-        <div className="fet-card overflow-hidden">
-          <div className="overflow-x-auto">
+      <div className="fet-card overflow-hidden">
+        <div className="p-6 border-b border-border-default">
+          <h3 className="text-lg font-semibold text-text-primary">Attendance History</h3>
+        </div>
+        <div className="overflow-x-auto">
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 size={28} className="animate-spin text-primary" />
+            </div>
+          ) : (
             <table className="fet-table">
               <thead>
                 <tr>
                   <th>Course</th>
                   <th>Class</th>
                   <th>Date</th>
+                  <th>Status</th>
+                  <th>Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((record, i) => (
+                  <tr key={record.id || i}>
+                    <td className="font-medium">{record.course_code}</td>
+                    <td>{record.class_name}</td>
+                    <td>{fmtDate(record.recorded_at) || record.session_date}</td>
+                    <td><span className={getRecordStatusColor(record.status)}>{record.status}</span></td>
+                    <td>{fmtTime(record.recorded_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {!loading && history.length === 0 && (
+            <div className="text-center py-8 text-text-secondary">No attendance records yet</div>
+          )}
+        </div>
+      </div>
+
+      {showScanner && <QRScanner onClose={() => setShowScanner(false)} onScan={() => load()} />}
+    </div>
+  );
+};
+
+/* ---------------------------- LECTURER VIEW ---------------------------- */
+const LecturerAttendance = () => {
+  const [now, setNow] = useState(Date.now());
+  const [sessions, setSessions] = useState([]);
+  const [records, setRecords] = useState({});
+  const [checkpoints, setCheckpoints] = useState({});
+  const [showCreateSession, setShowCreateSession] = useState(false);
+  const [selectedSession, setSelectedSession] = useState(null);
+  const [showProjector, setShowProjector] = useState(false);
+  const [projectorToken, setProjectorToken] = useState(null);
+  const [projectorError, setProjectorError] = useState('');
+  const [projectorRemaining, setProjectorRemaining] = useState(0);
+  const [projectorExpiresIn, setProjectorExpiresIn] = useState(10);
+  const [autoSelecting, setAutoSelecting] = useState(false);
+  const [stationPickerFor, setStationPickerFor] = useState(null);
+  const [roster, setRoster] = useState([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [pickedStations, setPickedStations] = useState([]);
+  const [savingStations, setSavingStations] = useState(false);
+  const [removingStation, setRemovingStation] = useState(null);
+  const [rosterError, setRosterError] = useState('');
+  const [correctingRecord, setCorrectingRecord] = useState(null);
+  const [correctionStatus, setCorrectionStatus] = useState('PRESENT');
+  const [flash, setFlash] = useState('');
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Restore the lecturer's sessions after a reload so Project / View stay available.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await attendanceApi.mySessions();
+        if (cancelled || !Array.isArray(data)) return;
+        setSessions((prev) => {
+          const merged = new Map(prev.map((s) => [s.id, s]));
+          data.forEach((s) => {
+            if (!merged.has(s.id)) merged.set(s.id, s);
+          });
+          return Array.from(merged.values());
+        });
+        const live = data.find((s) => s.is_active);
+        if (live) {
+          loadCheckpoints(live.id);
+        }
+      } catch {
+        // Not fatal: the lecturer can still start a new session.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const refreshStatus = useCallback(async (id) => {
+    try {
+      const st = await attendanceApi.status(id);
+      setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...st, status: st.status } : s)));
+    } catch {
+      // session may have expired server-side
+    }
+  }, []);
+
+  // Poll live status of active sessions
+  useEffect(() => {
+    const active = sessions.filter((s) => s.status === 'ACTIVE');
+    if (active.length === 0) return undefined;
+    const timer = setInterval(() => {
+      active.forEach((s) => refreshStatus(s.id));
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [sessions, refreshStatus]);
+
+  // Rotate projector token
+  useEffect(() => {
+    if (!showProjector || !selectedSession) return undefined;
+    let cancelled = false;
+    const rotate = async () => {
+      try {
+        const data = await attendanceApi.generateTokens(selectedSession.id);
+        if (cancelled) return;
+        const first = data?.tokens?.[0];
+        if (first?.token) {
+          setProjectorToken(first.token);
+          setProjectorError('');
+          setProjectorExpiresIn(data.expires_in_seconds || 10);
+        } else {
+          setProjectorError('The server returned no QR code. Try starting the session again.');
+        }
+      } catch (err) {
+        if (cancelled) return;
+        const code = err.response?.data?.error?.code;
+        setProjectorToken(null);
+        setProjectorError(
+          code === 'SESSION_EXPIRED'
+            ? 'The attendance window has closed. Close the projector and start a new session.'
+            : err.response?.data?.error?.message || 'Could not load the QR code.',
+        );
+      }
+    };
+    rotate();
+    const interval = setInterval(rotate, 8000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [showProjector, selectedSession]);
+
+  // Countdown to the moment the attendance window closes.
+  useEffect(() => {
+    if (!showProjector || !selectedSession) return undefined;
+    const expiresAt = selectedSession.expires_at ? new Date(selectedSession.expires_at).getTime() : null;
+    if (!expiresAt) return undefined;
+    const tick = () => setProjectorRemaining(expiresAt - Date.now());
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, [showProjector, selectedSession]);
+
+  const loadRecords = async (session) => {
+    try {
+      const data = await attendanceApi.sessionRecords(session.class_session_id || session.class_session);
+      setRecords((prev) => ({ ...prev, [session.id]: Array.isArray(data) ? data : [] }));
+    } catch {
+      setRecords((prev) => ({ ...prev, [session.id]: [] }));
+    }
+  };
+
+  const loadCheckpoints = async (sessionIdApi) => {
+    try {
+      const data = await attendanceApi.checkpoints(sessionIdApi);
+      setCheckpoints((prev) => ({ ...prev, [sessionIdApi]: Array.isArray(data) ? data : [] }));
+    } catch {
+      setCheckpoints((prev) => ({ ...prev, [sessionIdApi]: [] }));
+    }
+  };
+
+  const handleSessionCreated = (session) => {
+    setSessions((prev) => [session, ...prev]);
+    setFlash(`Attendance session started for ${session.course_code}.`);
+    setTimeout(() => setFlash(''), 4000);
+    setSelectedSession(session);
+    loadCheckpoints(session.id);
+  };
+
+  const handleCloseSession = async (session) => {
+    if (!window.confirm('Close this attendance session?')) return;
+    try {
+      const updated = await attendanceApi.closeSession(session.id);
+      setSessions((prev) => prev.map((s) => (s.id === session.id ? { ...s, ...updated, status: 'CLOSED' } : s)));
+      setSelectedSession(null);
+      setShowProjector(false);
+      setFlash('Attendance session closed.');
+      setTimeout(() => setFlash(''), 3000);
+    } catch (err) {
+      alert(err.response?.data?.error?.message || 'Could not close the session.');
+    }
+  };
+
+  const openStationPicker = async (session) => {
+    if (stationPickerFor === session.id && !rosterLoading) {
+      setStationPickerFor(null);
+      return;
+    }
+    setStationPickerFor(session.id);
+    setRosterError('');
+    // Watchdog: never let the spinner outlive the request, even if the
+    // response never arrives (blocked request, dropped connection, etc).
+    let guard;
+    try {
+      setRosterLoading(true);
+      guard = setTimeout(() => {
+        setRosterLoading(false);
+        setRosterError('The roster request did not respond. Check your connection and try again.');
+      }, 10000);
+      const classSessionId = session.class_session_id || session.class_session;
+      if (!classSessionId) throw new Error('This session is not linked to a class roster.');
+      const data = await attendanceApi.eligibleStudents(classSessionId);
+      setRoster(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setRoster([]);
+      setRosterError(
+        err.response?.data?.error?.message
+        || (err.code === 'ERR_NETWORK'
+          ? 'Could not reach the server. Is the backend running on port 8000?'
+          : err.message)
+        || 'Could not load the class roster.',
+      );
+    } finally {
+      if (guard) clearTimeout(guard);
+      setRosterLoading(false);
+    }
+  };
+
+  const toggleStation = (studentId) => {
+    setPickedStations((prev) => (
+      prev.includes(studentId)
+        ? prev.filter((id) => id !== studentId)
+        : [...prev, studentId]
+    ));
+  };
+
+  const saveStations = async (session) => {
+    if (pickedStations.length === 0) return;
+    setSavingStations(true);
+    try {
+      await attendanceApi.createCheckpoints(session.id, pickedStations);
+      setPickedStations([]);
+      setStationPickerFor(null);
+      setFlash(`${pickedStations.length} student${pickedStations.length === 1 ? '' : 's'} assigned as station${pickedStations.length === 1 ? '' : 's'}.`);
+      setTimeout(() => setFlash(''), 4000);
+      loadCheckpoints(session.id);
+    } catch (err) {
+      alert(err.response?.data?.error?.message || 'Could not assign the stations.');    } finally {
+      setSavingStations(false);
+    }
+  };
+
+  const removeStation = async (session, checkpoint) => {
+    if (!window.confirm(`Remove ${checkpoint.student_name} as a station?`)) return;
+    setRemovingStation(checkpoint.id);
+    try {
+      await attendanceApi.removeCheckpoint(session.id, checkpoint.id);
+      loadCheckpoints(session.id);
+    } catch (err) {
+      alert(err.response?.data?.error?.message || 'Could not remove that station.');
+    } finally {
+      setRemovingStation(null);
+    }
+  };
+
+  const handleAutoSelect = async (session) => {
+    setAutoSelecting(true);
+    try {
+      await attendanceApi.autoSelectStations(session.id, 3);
+      loadCheckpoints(session.id);
+    } catch (err) {
+      alert(err.response?.data?.error?.message || 'Could not auto-select stations.');
+    } finally {
+      setAutoSelecting(false);
+    }
+  };
+
+  const handleCorrect = async (record) => {
+    try {
+      const updated = await attendanceApi.correctRecord(record.id, { status: correctionStatus });
+      const sessId = record.attendance_session;
+      setRecords((prev) => ({
+        ...prev,
+        [sessId]: (prev[sessId] || []).map((r) => (r.id === updated.id ? { ...r, status: updated.status } : r)),
+      }));
+      setCorrectingRecord(null);
+      setFlash('Attendance record corrected.');
+      setTimeout(() => setFlash(''), 3000);
+    } catch (err) {
+      alert(err.response?.data?.error?.message || 'Could not correct the record.');
+    }
+  };
+
+  const handleDeleteRecord = async (record) => {
+    if (!window.confirm(`Delete the attendance record for ${record.student_name}? This removes it permanently.`)) return;
+    try {
+      const sessId = record.attendance_session;
+      await attendanceApi.deleteRecord(record.id);
+      setRecords((prev) => ({
+        ...prev,
+        [sessId]: (prev[sessId] || []).filter((r) => r.id !== record.id),
+      }));
+      setFlash('Attendance record deleted.');
+      setTimeout(() => setFlash(''), 3000);
+    } catch (err) {
+      alert(err.response?.data?.error?.message || 'Could not delete the record.');
+    }
+  };
+
+  const displaySessions = useMemo(() => {
+    // One row per class: the newest still-running session, else the newest
+    // finished one. Prevents a pile of dead sessions for the same class.
+    const best = new Map();
+    sessions.forEach((s) => {
+      const key = s.class_session_id || s.class_session || s.course_code;
+      const current = best.get(key);
+      if (!current) { best.set(key, s); return; }
+      const currentLive = current.status === 'ACTIVE' && new Date(current.expires_at) > now;
+      const candidateLive = s.status === 'ACTIVE' && new Date(s.expires_at) > now;
+      if (candidateLive && !currentLive) best.set(key, s);
+    });
+    return Array.from(best.values())
+      .filter((s) => s.status === 'ACTIVE' && new Date(s.expires_at) > now)
+      .sort((a, b) => new Date(b.expires_at) - new Date(a.expires_at));
+  }, [sessions, now]);
+  const historySessions = useMemo(
+    () => sessions
+      .filter((s) => !(s.status === 'ACTIVE' && new Date(s.expires_at) > now))
+      .sort((a, b) => new Date(b.started_at || b.expires_at) - new Date(a.started_at || a.expires_at))
+      .slice(0, 8),
+    [sessions, now]
+  );
+
+  const activeSession = selectedSession;
+
+  return (
+    <div className="space-y-4">
+      <SectionHeader
+        area="attendance"
+        icon={ClipboardCheck}
+        title="Attendance"
+        subtitle="Take a register with a projected code, or hand stations to students. Records and points save as people scan."
+        crumb={[{ label: 'FET Platform' }, { label: 'Attendance' }]}
+        actions={(
+          <button type="button" onClick={() => setShowCreateSession(true)} className="fet-btn-primary">
+            <Plus size={15} /> Start session
+          </button>
+        )}
+      />
+
+      {flash ? <Callout tone="ok" icon={CheckCircle2}>{flash}</Callout> : null}
+
+      {/* Live sessions */}
+      {displaySessions.length === 0 ? (
+        <Card accent="attendance">
+          <EmptyState
+            icon={Calendar}
+            title="No session is running"
+            subtitle="Start a session to open a register. Project a code on the wall, or let students act as stations."
+            action={(
+              <button type="button" onClick={() => setShowCreateSession(true)} className="fet-btn-primary">
+                <Plus size={15} /> Start session
+              </button>
+            )}
+          />
+        </Card>
+      ) : null}
+
+      <div className="space-y-4">
+        {displaySessions.map((session) => {
+          const present = session.present ?? session.total_present ?? 0;
+          const eligible = session.total_eligible ?? 'â€”';
+          const pct = eligible === 'â€”' || eligible === 0 ? 0 : Math.round((present / eligible) * 100);
+          const left = secondsLeft(new Date(session.expires_at).getTime(), now);
+          return (
+            <div key={session.id} className="ui-live">
+              <div className="ui-live-top">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                      <span className="text-[13.5px] font-semibold text-text-primary">{session.course_code}</span>
+                      <Pill tone="ok" dot>Live</Pill>
+                      <Tag>{session.mode === 'PROJECTOR' ? 'Projected code' : 'Student stations'}</Tag>
+                    </div>
+                    <p className="text-[12px] text-text-secondary">{session.class_name}</p>
+                    {session.expected_headcount ? (
+                      <p className="mt-1 text-[11.5px] text-text-secondary">
+                        Headcount target {session.expected_headcount}
+                        {session.headcount_remaining != null ? `, ${session.headcount_remaining} remaining` : ''}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="text-right">
+                    <Eyebrow>Window closes in</Eyebrow>
+                    <div className="ui-clock">{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="ui-card-body">
+                <div className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+                  {[
+                    { label: 'Present', value: present },
+                    { label: 'Eligible', value: eligible },
+                    { label: 'Rate', value: `${pct}%` },
+                    { label: 'Stations', value: checkpoints[session.id]?.length || 0 },
+                  ].map((f) => (
+                    <div key={f.label}>
+                      <Eyebrow>{f.label}</Eyebrow>
+                      <div className="ui-stat-value" style={{ fontSize: 22 }}>{f.value}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedSession(session); setShowProjector(true); }}
+                    className="fet-btn-primary"
+                  >
+                    <Monitor size={15} /> Project code
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedSession(session); loadRecords(session); loadCheckpoints(session.id); }}
+                    className="fet-btn-secondary"
+                  >
+                    <Eye size={15} /> View register
+                  </button>
+                  <div className="flex-1" />
+                  <button
+                    type="button"
+                    onClick={() => handleCloseSession(session)}
+                    className="fet-btn-danger"
+                  >
+                    <Square size={14} /> Close session
+                  </button>
+                </div>
+              </div>
+
+              {session.mode === 'STATIONS' ? (
+                <div style={{ padding: '0 16px 16px' }}>
+                  <Card accent="attendance">
+                    <CardHead title="Student stations" square="att">
+                      <button
+                        type="button"
+                        onClick={() => handleAutoSelect(session)}
+                        disabled={autoSelecting}
+                        className="fet-btn-secondary"
+                        style={{ padding: '6px 11px', fontSize: 12.5 }}
+                      >
+                        {autoSelecting
+                          ? <><Loader2 size={14} className="animate-spin" /> Selecting...</>
+                          : <><RefreshCw size={14} /> Auto select</>}
+                      </button>
+                      <button type="button" onClick={() => openStationPicker(session)} className="fet-btn-primary" style={{ padding: '6px 11px', fontSize: 12.5 }}>
+                        <UserCheck size={14} /> Select students
+                      </button>
+                    </CardHead>
+                    <CardBody>
+                      {rosterLoading && stationPickerFor === session.id ? (
+                        <div className="flex items-center justify-center gap-2 py-4 text-sm text-text-secondary">
+                          <Loader2 size={15} className="animate-spin" /> Loading roster...
+                        </div>
+                      ) : rosterError && stationPickerFor === session.id ? (
+                        <Callout tone="wn" icon={AlertCircle}>
+                          <div className="flex flex-col items-center gap-2">
+                            <span>{rosterError}</span>
+                            <button type="button" onClick={() => openStationPicker(session)} className="fet-btn-secondary" style={{ padding: '6px 11px', fontSize: 12.5 }}>
+                              <RefreshCw size={14} /> Try again
+                            </button>
+                          </div>
+                        </Callout>
+                      ) : stationPickerFor === session.id ? (
+                        <StationPickerBody
+                          roster={roster}
+                          picked={pickedStations}
+                          onToggle={toggleStation}
+                          onSave={() => saveStations(session)}
+                          saving={savingStations}
+                        />
+                      ) : (checkpoints[session.id]?.length || 0) === 0 ? (
+                        <p className="text-[12.5px] text-text-secondary">
+                          No stations picked yet. Choose the students who have their phone out and are ready
+                          to show a code.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          {checkpoints[session.id].map((c) => (
+                            <span key={c.id} className="ui-pill pill-in">
+                              {c.checkpoint_number} &nbsp;{c.student_name}
+                              <button
+                                type="button"
+                                onClick={() => removeStation(session, c)}
+                                disabled={removingStation === c.id}
+                                className="ml-0.5 rounded-full hover:text-danger"
+                                title={`Remove ${c.student_name} as a station`}
+                                aria-label={`Remove ${c.student_name} as a station`}
+                              >
+                                {removingStation === c.id
+                                  ? <Loader2 size={11} className="animate-spin" />
+                                  : <X size={11} />}
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </CardBody>
+                  </Card>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* History */}
+      {historySessions.length > 0 && (
+        <div className="fet-card overflow-hidden">
+          <div className="p-6 border-b border-border-default">
+            <h3 className="text-lg font-semibold text-text-primary">History</h3>
+            <p className="text-sm text-text-secondary">Sessions started in this browser since load. Full history is available on the backend.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="fet-table">
+              <thead>
+                <tr>
+                  <th>Course</th>
+                  <th>Class</th>
+                  <th>Started</th>
                   <th>Present</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {attendanceSessions.filter(s => s.status !== 'ACTIVE').map((session) => {
-                  const records = getAttendanceForSession(session.id);
-                  return (
-                    <tr key={session.id}>
-                      <td className="font-medium">{session.courseCode}</td>
-                      <td>{session.className}</td>
-                      <td>{session.createdAt?.split('T')[0]}</td>
-                      <td>{records.length}</td>
-                      <td>
-                        <span className={getStatusColor(session.status)}>
-                          {session.status}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {attendanceSessions.filter(s => s.status !== 'ACTIVE').length === 0 && (
-            <div className="text-center py-8 text-text-secondary">No past sessions</div>
-          )}
-        </div>
-      )}
-
-      {/* Corrections */}
-      {activeTab === 'corrections' && (
-        <div className="fet-card overflow-hidden">
-          <div className="p-6 border-b border-border-default">
-            <h3 className="text-lg font-semibold text-text-primary">Attendance Corrections</h3>
-            <p className="text-sm text-text-secondary">Correction history is preserved rather than silently overwritten.</p>
-          </div>
-          {corrections.length > 0 ? (
-            <table className="fet-table">
-              <thead>
-                <tr>
-                  <th>Student</th>
-                  <th>Course</th>
-                  <th>Previous</th>
-                  <th>New</th>
-                  <th>Reason</th>
-                  <th>By</th>
-                </tr>
-              </thead>
-              <tbody>
-                {corrections.map(c => (
-                  <tr key={c.id}>
-                    <td className="font-medium">{c.studentId}</td>
-                    <td>{c.courseCode}</td>
-                    <td><span className="fet-badge fet-badge-absent">{c.previousStatus}</span></td>
-                    <td><span className="fet-badge fet-badge-present">{c.newStatus}</span></td>
-                    <td>{c.reason}</td>
-                    <td className="text-sm">{c.correctedBy} · {new Date(c.date).toLocaleDateString()}</td>
+                {historySessions.map((session) => (
+                  <tr key={session.id}>
+                    <td className="font-medium">{session.course_code}</td>
+                    <td>{session.class_name}</td>
+                    <td>{fmtDate(session.started_at)}</td>
+                    <td>{session.present ?? session.total_present ?? 0}</td>
+                    <td><span className={getStatusColor(session.status)}>{session.status}</span></td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          ) : (
-            <div className="text-center py-8 text-text-secondary">No corrections recorded</div>
-          )}
-        </div>
-      )}
-
-      {/* Create Session Modal */}
-      {showCreateSession && (
-        <AttendanceSession 
-          user={user} 
-          onClose={() => setShowCreateSession(false)}
-          onCreated={() => setShowCreateSession(false)}
-        />
-      )}
-
-      {/* QR Display Modal - ONLY FOR LECTURERS */}
-      {showQRDisplay && selectedSession && !projectorMode && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="fet-card bg-white rounded-2xl shadow-modal max-w-md w-full p-8">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-text-primary">Attendance QR Code</h3>
-              <button 
-                onClick={() => {
-                  setShowQRDisplay(false);
-                  setSelectedSession(null);
-                }}
-                className="p-1 hover:bg-page-bg rounded-lg"
-                aria-label="Close"
-              >
-                <X size={24} className="text-text-secondary" />
-              </button>
-            </div>
-
-            <div className="text-center">
-              <div className="bg-white border-2 border-primary rounded-xl p-6 inline-block mx-auto">
-                <QrCode size={160} className="text-[#0F0B3D]" />
-              </div>
-              <p className="text-sm text-text-secondary mt-4 font-mono font-bold">
-                {selectedSession.token || 'TOKEN-XXXX'}
-              </p>
-              <p className="text-xs text-text-secondary mt-2">
-                Students scan this QR to mark attendance
-              </p>
-              <p className="text-xs text-warning mt-1">
-                Token expires in: {secondsLeft(selectedSession.tokenExpiresAt)}s
-              </p>
-              <div className="mt-4 p-3 bg-page-bg rounded-xl">
-                <p className="text-xs text-text-secondary">Course: {selectedSession.courseCode}</p>
-                <p className="text-xs text-text-secondary">Class: {selectedSession.className}</p>
-                <p className="text-xs text-text-secondary">Recorded: {getAttendanceForSession(selectedSession.id).length} students</p>
-              </div>
-            </div>
-
-            <div className="mt-5 grid grid-cols-2 gap-3">
-              <button
-                onClick={() => setProjectorMode(true)}
-                className="flex items-center justify-center gap-2 px-4 py-3 bg-[#0F0B3D] text-white rounded-xl font-semibold hover:bg-[#3F35B5]"
-              >
-                <Monitor size={18} /> Projector Mode
-              </button>
-              <button
-                onClick={handleCloseSession}
-                className="flex items-center justify-center gap-2 px-4 py-3 fet-btn-danger"
-              >
-                <Square size={18} /> Close Session
-              </button>
-            </div>
-            <button
-              onClick={() => {
-                setShowQRDisplay(false);
-                setSelectedSession(null);
-              }}
-              className="mt-3 w-full fet-btn-secondary"
-            >
-              Close
-            </button>
           </div>
         </div>
       )}
 
-      {/* Projector / Fullscreen Mode */}
-      {projectorMode && selectedSession && (
+      {/* Create session modal */}
+      {showCreateSession && (
+        <AttendanceSession user={{ role: 'lecturer' }} onClose={() => setShowCreateSession(false)} onCreated={handleSessionCreated} />
+      )}
+
+      {/* Projector overlay with REAL QR */}
+      {showProjector && activeSession && (
         <div className="fixed inset-0 bg-[#0a0a1a] z-[100] flex flex-col items-center justify-center p-8">
           <button
-            onClick={() => setProjectorMode(false)}
+            onClick={() => { setShowProjector(false); setProjectorToken(null); setProjectorError(''); }}
             className="absolute top-4 right-4 flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-xl hover:bg-white/20"
           >
             <X size={18} /> Exit Projector
           </button>
           <div className="flex items-center gap-2 text-white/60 mb-4">
             <Clock size={16} />
-            <span>Token expires in: <span className="font-bold">{secondsLeft(selectedSession.tokenExpiresAt)}s</span></span>
-            <span className="ml-4">Recorded: <span className="font-bold">{getAttendanceForSession(selectedSession.id).length}</span></span>
+            <span>
+              Closes in:{' '}
+              <span className="font-bold text-white">
+                {Math.max(0, Math.floor((projectorRemaining / 1000) / 60))}:
+                {String(Math.max(0, Math.floor((projectorRemaining / 1000) % 60))).padStart(2, '0')}
+              </span>
+            </span>
+            <span className="ml-4 text-white/40">QR refreshes every {projectorExpiresIn}s</span>
+            <span className="ml-4">Present: <span className="font-bold">{activeSession.present ?? activeSession.total_present ?? 0}</span></span>
+            {activeSession.expected_headcount ? (
+              <span className="ml-4">Headcount remaining: <span className="font-bold">{activeSession.headcount_remaining ?? 0}</span></span>
+            ) : null}
           </div>
           <div className="bg-white rounded-3xl p-10 shadow-2xl">
-            <QrCode size={420} className="text-[#0F0B3D]" />
+            {projectorToken ? (
+              <QRCodeDisplay value={projectorToken} size={360} />
+            ) : projectorError ? (
+              <div className="w-[360px] h-[360px] flex flex-col items-center justify-center gap-3 text-center px-4">
+                <AlertCircle size={44} className="text-red-500" />
+                <p className="font-semibold text-text-primary">No QR code</p>
+                <p className="text-sm text-text-secondary">{projectorError}</p>
+                <button
+                  onClick={() => { setShowProjector(false); setShowCreateSession(true); }}
+                  className="fet-btn-primary mt-2"
+                >
+                  Start a new session
+                </button>
+              </div>
+            ) : (
+              <div className="w-[360px] h-[360px] flex items-center justify-center">
+                <Loader2 size={48} className="animate-spin text-[#0F0B3D]" />
+              </div>
+            )}
           </div>
-          <p className="text-white font-mono text-2xl mt-6 font-bold tracking-widest">
-            {selectedSession.token || 'TOKEN-XXXX'}
+          <p className="text-white font-mono text-xl mt-6 font-bold tracking-widest break-all max-w-xl text-center">
+            {projectorToken || (projectorError ? 'No QR code' : 'Generating QR...')}
           </p>
-          <p className="text-white/60 mt-2">Scan to mark attendance — {selectedSession.courseCode} · {selectedSession.className}</p>
+          <p className="text-white/60 mt-2">Students scan to mark attendance â€” {activeSession.course_code} Â· {activeSession.class_name}</p>
         </div>
       )}
 
-      {/* View Session Modal */}
-      {selectedSession && !showQRDisplay && (
+      {/* View session modal with records + corrections */}
+      {selectedSession && !showProjector && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="fet-card bg-white rounded-2xl shadow-modal max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6">
             <div className="flex items-center justify-between mb-4">
@@ -562,66 +869,65 @@ const AttendanceDashboard = ({ user }) => {
                     <Square size={14} /> Close Session
                   </button>
                 )}
-                <button 
-                  onClick={() => setSelectedSession(null)}
-                  className="p-1 hover:bg-page-bg rounded-lg"
-                  aria-label="Close"
-                >
-                  <span className="text-2xl">×</span>
+                <button onClick={() => { setSelectedSession(null); setCorrectingRecord(null); }} className="p-1 hover:bg-page-bg rounded-lg">
+                  <span className="text-2xl">Ã—</span>
                 </button>
               </div>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4 mb-4">
-              <div><span className="font-semibold">Course:</span> {selectedSession.courseCode} - {selectedSession.courseName}</div>
-              <div><span className="font-semibold">Class:</span> {selectedSession.className}</div>
-              <div><span className="font-semibold">Mode:</span> {selectedSession.mode}</div>
+              <div><span className="font-semibold">Course:</span> {selectedSession.course_code} - {selectedSession.class_name}</div>
+              <div><span className="font-semibold">Started:</span> {fmtDate(selectedSession.started_at)} {fmtTime(selectedSession.started_at)}</div>
+              <div><span className="font-semibold">Expires:</span> {fmtTime(selectedSession.expires_at)}</div>
               <div><span className="font-semibold">Status:</span> {selectedSession.status}</div>
             </div>
 
-            <h4 className="font-semibold text-text-primary mb-2">Attendance Records ({sessionRecords.length})</h4>
+            <h4 className="font-semibold text-text-primary mb-2">Attendance Records ({records[selectedSession.id]?.length || 0})</h4>
             <div className="overflow-x-auto">
               <table className="fet-table">
                 <thead>
                   <tr>
                     <th>Student</th>
-                    <th>ID</th>
+                    <th>Email</th>
                     <th>Status</th>
+                    <th>Method</th>
                     <th>Time</th>
-                    <th>Correction</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sessionRecords.length > 0 ? sessionRecords.map((record) => (
+                  {(records[selectedSession.id] || []).map((record) => (
                     <tr key={record.id}>
-                      <td className="font-medium">{record.studentName || record.studentId}</td>
-                      <td className="text-sm">{record.studentId}</td>
+                      <td className="font-medium">{record.student_name}</td>
+                      <td className="text-sm">{record.student_email}</td>
+                      <td><span className={getRecordStatusColor(record.status)}>{record.status}</span></td>
+                      <td className="text-sm">{record.verification_method}</td>
+                      <td className="text-sm">{fmtTime(record.recorded_at)}</td>
                       <td>
-                        <span className={getRecordStatusColor(record.status)}>
-                          {record.status}{record.corrected ? ' (corrected)' : ''}
-                        </span>
-                      </td>
-                      <td className="text-sm">{record.time}</td>
-                      <td>
-                        {record.status !== 'PRESENT' || record.corrected ? (
+                        <div className="flex items-center gap-3">
                           <button
-                            onClick={() => { setCorrectingRecord(record); setCorrectionStatus(record.status === 'PRESENT' ? 'LATE' : 'PRESENT'); }}
+                            onClick={() => { setCorrectingRecord(record); setCorrectionStatus(record.status); }}
                             className="flex items-center gap-1 text-xs text-primary hover:underline"
                           >
                             <Pencil size={14} /> Correct
                           </button>
-                        ) : (
                           <button
-                            onClick={() => setCorrectingRecord(record)}
-                            className="flex items-center gap-1 text-xs text-primary hover:underline"
+                            onClick={() => handleDeleteRecord(record)}
+                            className="flex items-center gap-1 text-xs text-red-500 hover:underline"
+                            title="Delete this record permanently"
                           >
-                            <Pencil size={14} /> Correct
+                            <Trash2 size={14} /> Delete
                           </button>
-                        )}
+                        </div>
                       </td>
                     </tr>
-                  )) : (
-                    <tr><td colSpan={5} className="text-center py-8 text-text-secondary">No attendance records for this session</td></tr>
+                  ))}
+                  {(records[selectedSession.id] || []).length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="text-center py-8 text-text-secondary">
+                        <Loader2 size={20} className="inline animate-spin mr-2" />No records loaded yet
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>
@@ -630,47 +936,24 @@ const AttendanceDashboard = ({ user }) => {
             {correctingRecord && (
               <div className="mt-4 p-4 border border-border-default rounded-xl bg-page-bg">
                 <h5 className="font-semibold text-text-primary mb-2">
-                  Correct attendance for {correctingRecord.studentName || correctingRecord.studentId}
+                  Correct attendance for {correctingRecord.student_name}
                 </h5>
-                <p className="text-xs text-text-secondary mb-2">
-                  Current status: <span className="font-semibold">{correctingRecord.status}</span> — this correction will be preserved in the audit log.
-                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="fet-label">New Status</label>
-                    <select
-                      value={correctionStatus}
-                      onChange={(e) => setCorrectionStatus(e.target.value)}
-                      className="fet-select"
-                    >
-                      <option value="Present">Present</option>
-                      <option value="Late">Late</option>
-                      <option value="Absent">Absent</option>
+                    <select value={correctionStatus} onChange={(e) => setCorrectionStatus(e.target.value)} className="fet-select">
+                      <option value="PRESENT">Present</option>
+                      <option value="LATE">Late</option>
+                      <option value="ABSENT">Absent</option>
+                      <option value="EXCUSED">Excused</option>
                     </select>
-                  </div>
-                  <div>
-                    <label className="fet-label">Reason *</label>
-                    <input
-                      type="text"
-                      value={correctionReason}
-                      onChange={(e) => setCorrectionReason(e.target.value)}
-                      placeholder="e.g., Student provided evidence"
-                      className="fet-input"
-                    />
                   </div>
                 </div>
                 <div className="mt-3 flex gap-2">
-                  <button
-                    onClick={() => handleCorrectAttendance(correctingRecord)}
-                    disabled={!correctionReason}
-                    className="fet-btn-primary disabled:opacity-50"
-                  >
+                  <button onClick={() => handleCorrect(correctingRecord)} className="fet-btn-primary">
                     Save Correction
                   </button>
-                  <button
-                    onClick={() => { setCorrectingRecord(null); setCorrectionReason(''); }}
-                    className="fet-btn-secondary"
-                  >
+                  <button onClick={() => setCorrectingRecord(null)} className="fet-btn-secondary">
                     Cancel
                   </button>
                 </div>
@@ -681,6 +964,14 @@ const AttendanceDashboard = ({ user }) => {
       )}
     </div>
   );
+};
+
+/* ------------------------------- ENTRY -------------------------------- */
+const AttendanceDashboard = ({ user }) => {
+  if (!isLecturerRole(user)) {
+    return <StudentAttendance user={user} />;
+  }
+  return <LecturerAttendance user={user} />;
 };
 
 export default AttendanceDashboard;

@@ -1,50 +1,117 @@
-import React, { useState, useEffect } from 'react';
-import { useAppContext } from '../../context/AppContext';
-import { QrCode, X, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { QrCode, X, CheckCircle, AlertCircle, Camera, Keyboard } from 'lucide-react';
+import api from '../../lib/api';
 
-const QRScanner = ({ session, user, onClose, onScan }) => {
-  const { recordAttendance } = useAppContext();
+const BarcodeDetectorApi = typeof window !== 'undefined' ? (window.BarcodeDetector || null) : null;
+
+const QRScanner = ({ onClose, onScan }) => {
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [manualCode, setManualCode] = useState('');
+  const [cameraOn, setCameraOn] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
 
-  const handleSimulateScan = () => {
-    if (!session) {
-      setError('No active session');
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    setCameraOn(false);
+  };
+
+  useEffect(() => {
+    return () => stopCamera();
+  }, []);
+
+  const extractToken = (raw) => {
+    // The QR encodes the raw token, but may be wrapped in a URL
+    const text = String(raw || '').trim();
+    const match = text.match(/([A-Za-z0-9_-]{20,})/);
+    return match ? match[1] : text;
+  };
+
+  const submitScan = async (token) => {
+    const clean = extractToken(token);
+    if (!clean) {
+      setError('Invalid QR code. Please try again.');
       return;
     }
-
-    if (Date.now() > session.tokenExpiresAt) {
-      setError('QR code expired. Please scan the current QR code.');
-      return;
-    }
-
-    if (Date.now() > session.sessionExpiresAt) {
-      setError('Session has expired.');
-      return;
-    }
-
     setScanning(true);
     setError('');
-
-    setTimeout(() => {
-      const response = recordAttendance(session.id, user?.matricule || 'FE24A389', 'QR Scan');
-      
-      if (response.success) {
+    try {
+      const res = await api.post('/attendance/scan/', { token: clean });
+      const data = res.data?.data ?? res.data;
+      if (data?.success || res.status === 201) {
         setResult({
           success: true,
-          course: session.courseCode,
-          className: session.className,
+          message: data?.message || 'Attendance recorded.',
           time: new Date().toLocaleTimeString(),
-          status: 'PRESENT',
         });
-        onScan && onScan(response);
+        if (onScan) onScan({ success: true, record: data });
+        stopCamera();
       } else {
-        setError(response.error);
+        setError(data?.message || 'Scan failed.');
+        if (onScan) onScan({ success: false });
       }
+    } catch (err) {
+      const e = err.response?.data?.error;
+      setError(e?.message || err.response?.data?.message || 'Scan failed. Please try again.');
+      if (onScan) onScan({ success: false });
+    } finally {
       setScanning(false);
-    }, 1500);
+    }
+  };
+
+  const startCamera = async () => {
+    setCameraError('');
+    if (!BarcodeDetectorApi) {
+      setCameraError('Camera scanning is not supported in this browser. Use the code entry below.');
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError('Camera access is unavailable. Use the code entry below.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+      });
+      streamRef.current = stream;
+      setCameraOn(true);
+      const video = videoRef.current;
+      if (video) {
+        video.srcObject = stream;
+        await video.play();
+        await scanLoop(video);
+      }
+    } catch (err) {
+      setCameraError('Could not access the camera: ' + (err?.message || 'Permission denied.'));
+    }
+  };
+
+  const scanLoop = async (video) => {
+    if (!video || !BarcodeDetectorApi) return;
+    const detector = new BarcodeDetectorApi({ formats: ['qr_code'] });
+    let stop = false;
+    const loop = async () => {
+      if (stop) return;
+      try {
+        const codes = await detector.detect(video);
+        if (codes.length > 0) {
+          stop = true;
+          stopCamera();
+          await submitScan(codes[0].rawValue);
+          return;
+        }
+      } catch {
+        // continue scanning
+      }
+      if (!stop) setTimeout(loop, 200);
+    };
+    loop();
   };
 
   const handleManualSubmit = (e) => {
@@ -53,12 +120,8 @@ const QRScanner = ({ session, user, onClose, onScan }) => {
       setError('Please enter the attendance code');
       return;
     }
-    
-    if (manualCode === session?.token) {
-      handleSimulateScan();
-    } else {
-      setError('Invalid attendance code. Please try again.');
-    }
+    submitScan(manualCode);
+    setManualCode('');
   };
 
   return (
@@ -66,22 +129,19 @@ const QRScanner = ({ session, user, onClose, onScan }) => {
       <div className="fet-card bg-white rounded-2xl shadow-modal max-w-md w-full p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xl font-bold text-text-primary">Scan QR Code</h3>
-          <button onClick={onClose} className="p-1 hover:bg-page-bg rounded-lg">
+          <button onClick={() => { stopCamera(); onClose(); }} className="p-1 hover:bg-page-bg rounded-lg">
             <X size={24} className="text-text-secondary" />
           </button>
         </div>
 
-        {/* Result */}
         {result?.success ? (
           <div className="text-center py-6">
             <CheckCircle size={64} className="mx-auto text-success mb-4" />
             <h4 className="text-xl font-bold text-success">Attendance Recorded</h4>
-            <p className="text-text-secondary mt-2">Course: {result.course}</p>
-            <p className="text-text-secondary">Class: {result.className}</p>
+            <p className="text-text-secondary mt-2">{result.message}</p>
             <p className="text-text-secondary">Time: {result.time}</p>
-            <p className="text-text-secondary">Status: <span className="font-bold text-success">{result.status}</span></p>
             <button
-              onClick={onClose}
+              onClick={() => { stopCamera(); onClose(); }}
               className="mt-4 fet-btn-primary"
             >
               Done
@@ -89,30 +149,44 @@ const QRScanner = ({ session, user, onClose, onScan }) => {
           </div>
         ) : (
           <>
-            {/* QR Scanner Area */}
-            <div className="border-2 border-dashed border-border-default rounded-xl p-8 text-center">
-              {scanning ? (
-                <div className="py-4">
-                  <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
-                  <p className="text-text-secondary mt-2">Scanning...</p>
-                </div>
-              ) : (
-                <div>
-                  <QrCode size={64} className="mx-auto text-primary" />
-                  <p className="text-text-secondary mt-2">Point your camera at the QR code</p>
-                  <button
-                    onClick={handleSimulateScan}
-                    className="mt-4 fet-btn-primary"
-                  >
-                    Simulate Scan
-                  </button>
-                </div>
-              )}
-            </div>
+            {cameraOn && (
+              <div className="rounded-xl overflow-hidden bg-black relative">
+                <video ref={videoRef} className="w-full h-64 object-cover" playsInline muted />
+                <div className="absolute inset-0 border-2 border-primary rounded-xl pointer-events-none overlay-frame" />
+                <p className="absolute bottom-2 left-0 right-0 text-center text-white text-xs bg-black/50 py-1">
+                  {scanning ? 'Recording attendance...' : 'Point camera at the QR code'}
+                </p>
+              </div>
+            )}
 
-            {/* OR Manual Entry */}
+            {!cameraOn && (
+              <div className="border-2 border-dashed border-border-default rounded-xl p-8 text-center">
+                {cameraError ? (
+                  <div>
+                    <AlertCircle size={40} className="mx-auto text-warning mb-2" />
+                    <p className="text-sm text-text-secondary">{cameraError}</p>
+                  </div>
+                ) : (
+                  <div>
+                    <QrCode size={64} className="mx-auto text-primary" />
+                    <p className="text-text-secondary mt-2">Use your camera to scan the QR code</p>
+                  </div>
+                )}
+                <button
+                  onClick={startCamera}
+                  disabled={scanning}
+                  className="mt-4 fet-btn-primary flex items-center gap-2 mx-auto"
+                >
+                  <Camera size={18} />
+                  Start Camera
+                </button>
+              </div>
+            )}
+
             <div className="mt-4">
-              <p className="text-sm text-text-secondary text-center mb-2">OR</p>
+              <p className="text-sm text-text-secondary text-center mb-2 flex items-center justify-center gap-1">
+                <Keyboard size={14} /> OR enter the code shown under the QR
+              </p>
               <form onSubmit={handleManualSubmit} className="flex gap-2">
                 <input
                   type="text"
@@ -123,34 +197,18 @@ const QRScanner = ({ session, user, onClose, onScan }) => {
                 />
                 <button
                   type="submit"
+                  disabled={scanning}
                   className="fet-btn-primary"
                 >
-                  Submit
+                  {scanning ? 'Checking...' : 'Submit'}
                 </button>
               </form>
             </div>
 
-            {/* Error */}
             {error && (
               <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-danger text-sm flex items-center gap-2">
                 <AlertCircle size={18} />
                 {error}
-              </div>
-            )}
-
-            {/* Session Info */}
-            {session && (
-              <div className="mt-4 p-3 bg-page-bg rounded-xl flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-text-primary">{session.courseCode}</p>
-                  <p className="text-xs text-text-secondary">{session.className}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm text-text-secondary">Token expires</p>
-                  <p className="text-sm font-bold text-text-primary" id="scanner-countdown">
-                    {Math.max(0, Math.round((session.tokenExpiresAt - Date.now()) / 1000))}s
-                  </p>
-                </div>
               </div>
             )}
           </>

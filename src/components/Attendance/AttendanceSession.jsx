@@ -1,297 +1,258 @@
-import React, { useState } from 'react';
-import { useAppContext } from '../../context/AppContext';
-import { X, Users, QrCode, ChevronRight, Search, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import attendanceApi from '../../lib/attendance';
+import { X, Users, QrCode, ChevronRight, Loader2, AlertCircle } from 'lucide-react';
 
-const AttendanceSession = ({ user, onClose, onCreated }) => {
-  const { addAttendanceSession } = useAppContext();
+const DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+
+const AttendanceSession = ({ onClose, onCreated }) => {
   const [step, setStep] = useState(1);
-  const [formData, setFormData] = useState({
-    courseCode: '',
-    courseName: '',
-    className: '',
-    mode: 'LECTURER_PROJECTED',
-    stationStudents: [],
-    tokenDuration: 10,
-    sessionDuration: 60,
-  });
-  const [searchTerm, setSearchTerm] = useState('');
+  const [courses, setCourses] = useState([]);
+  const [loadingCourses, setLoadingCourses] = useState(true);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState('');
+  const [formData, setFormData] = useState({
+    offeringId: '',
+    scheduleId: '',
+    mode: 'PROJECTOR',
+    windowMinutes: 5,
+    expectedHeadcount: '',
+  });
 
-  // Mock courses
-  const courses = [
-    { code: 'CEF444', name: 'Artificial Intelligence and Machine Learning' },
-    { code: 'CEF350', name: 'Security and Cryptosystem' },
-    { code: 'CEF342', name: 'Database and Design' },
-    { code: 'SE401', name: 'Advanced Software Engineering' },
-    { code: 'SE402', name: 'Agile Development' },
-  ];
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await attendanceApi.lecturerCourses();
+        setCourses(Array.isArray(data) ? data : []);
+      } catch (err) {
+        setError(err.response?.data?.error?.message || 'Could not load your courses.');
+      } finally {
+        setLoadingCourses(false);
+      }
+    })();
+  }, []);
 
-  // Mock classes
-  const classes = [
-    { id: 'cen400-a', name: 'CEN Level 400 - Group A' },
-    { id: 'cen400-b', name: 'CEN Level 400 - Group B' },
-    { id: 'se400-a', name: 'SE Level 400 - Group A' },
-  ];
+  const offering = courses.find((c) => c.offering_id === formData.offeringId);
+  const schedule = offering?.schedules?.find((s) => String(s.id) === String(formData.scheduleId));
 
-  // Mock students
-  const eligibleStudents = [
-    { matricule: 'FE24A389', name: 'Alex Scholar', level: '400' },
-    { matricule: 'FE24B456', name: 'Emma Watson', level: '400' },
-    { matricule: 'FE23C789', name: 'James Miller', level: '400' },
-    { matricule: 'FE25D012', name: 'Sarah Connor', level: '400' },
-  ];
+  const fmtTime = (t) => (t ? String(t).slice(0, 5) : '');
 
-  // Class -> eligible students mapping (mock enrolment)
-  const getEligibleForClass = (className) => {
-    const byMatricule = { FE24A389: 'Alex Scholar', FE24B456: 'Emma Watson', FE23C789: 'James Miller', FE25D012: 'Sarah Connor' };
-    return { ids: Object.keys(byMatricule), names: byMatricule };
-  };
-
-  const filteredStudents = eligibleStudents.filter(s =>
-    s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.matricule.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const handleSelectStudent = (student) => {
-    if (formData.stationStudents.find(s => s.matricule === student.matricule)) {
-      setFormData(prev => ({
-        ...prev,
-        stationStudents: prev.stationStudents.filter(s => s.matricule !== student.matricule)
-      }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        stationStudents: [...prev.stationStudents, student]
-      }));
-    }
-  };
-
-  const handleSubmit = () => {
-    if (!formData.courseCode || !formData.className) {
-      setError('Please select a course and class');
+  const handleSubmit = async () => {
+    if (!formData.offeringId) {
+      setError('Please select a course.');
       return;
     }
+    setStarting(true);
+    setError('');
+    try {
+      const payload = {
+        offering_id: formData.offeringId,
+        mode: formData.mode,
+        // How long attendance stays OPEN (minutes chosen by the lecturer).
+        // The QR token TTL is a separate, server-side security setting.
+        duration_seconds: Math.max(60, Math.round(Number(formData.windowMinutes || 5) * 60)),
+      };
+      if (formData.scheduleId) payload.schedule_id = formData.scheduleId;
+      if (formData.expectedHeadcount) payload.expected_headcount = Number(formData.expectedHeadcount);
 
-    if (formData.mode === 'STATION_BASED' && formData.stationStudents.length === 0) {
-      setError('Please select at least one station student');
-      return;
+      const session = await attendanceApi.startFlex(payload);
+
+      if (onCreated) onCreated(session);
+      if (onClose) onClose();
+    } catch (err) {
+      setError(err.response?.data?.error?.message || 'Could not start the attendance session.');
+    } finally {
+      setStarting(false);
     }
-
-    const eligibility = getEligibleForClass(formData.className);
-
-    addAttendanceSession({
-      courseCode: formData.courseCode,
-      courseName: courses.find(c => c.code === formData.courseCode)?.name || '',
-      className: formData.className,
-      mode: formData.mode,
-      stationStudentIds: formData.stationStudents.map(s => s.matricule),
-      eligibleStudentIds: eligibility.ids,
-      stationStudentNames: eligibility.names,
-      tokenDuration: formData.tokenDuration,
-      sessionDuration: formData.sessionDuration,
-      lecturerId: user?.staffNumber || 'LEC001',
-    });
-
-    if (onCreated) onCreated();
-    if (onClose) onClose();
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
       <div className="fet-card bg-white rounded-2xl shadow-modal max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-border-default">
-          <h3 className="text-xl font-bold text-text-primary">Create Attendance Session</h3>
+          <h3 className="text-xl font-bold text-text-primary">Start Attendance Session</h3>
           <button onClick={onClose} className="p-1 hover:bg-page-bg rounded-lg">
             <X size={24} className="text-text-secondary" />
           </button>
         </div>
 
-        {/* Steps Indicator */}
         <div className="flex items-center justify-center gap-4 p-4 bg-page-bg border-b border-border-default">
-          {[1, 2, 3].map((s) => (
+          {[1, 2].map((s) => (
             <div key={s} className="flex items-center gap-2">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
                 step >= s ? 'bg-primary text-white' : 'bg-page-bg text-text-secondary'
               }`}>
                 {s}
               </div>
-              {s < 3 && <ChevronRight size={16} className="text-text-secondary" />}
+              {s < 2 && <ChevronRight size={16} className="text-text-secondary" />}
             </div>
           ))}
         </div>
 
         <div className="p-6">
           {error && (
-            <div className="bg-red-50 border border-red-200 text-danger px-4 py-3 rounded-xl text-sm mb-4">
+            <div className="bg-red-50 border border-red-200 text-danger px-4 py-3 rounded-xl text-sm mb-4 flex items-center gap-2">
+              <AlertCircle size={16} />
               {error}
             </div>
           )}
 
-          {/* Step 1: Select Course & Class */}
+          {/* Step 1: Course + Mode */}
           {step === 1 && (
             <div className="space-y-4">
               <div>
                 <label className="fet-label">Course *</label>
-                <select
-                  value={formData.courseCode}
-                  onChange={(e) => {
-                    const course = courses.find(c => c.code === e.target.value);
-                    setFormData(prev => ({
-                      ...prev,
-                      courseCode: e.target.value,
-                      courseName: course?.name || ''
-                    }));
-                  }}
-                  className="fet-select"
-                >
-                  <option value="">Select Course</option>
-                  {courses.map(c => (
-                    <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
-                  ))}
-                </select>
+                {loadingCourses ? (
+                  <div className="flex items-center gap-2 text-text-secondary text-sm py-2">
+                    <Loader2 size={16} className="animate-spin" /> Loading your courses...
+                  </div>
+                ) : (
+                  <select
+                    value={formData.offeringId}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, offeringId: e.target.value, scheduleId: '' }))}
+                    className="fet-select"
+                  >
+                    <option value="">Select Course</option>
+                    {courses.map((c) => (
+                      <option key={c.offering_id} value={c.offering_id}>
+                        {c.course_code} - {c.course_title} ({c.enrolled_students} enrolled)
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
-              <div>
-                <label className="fet-label">Class *</label>
-                <select
-                  value={formData.className}
-                  onChange={(e) => setFormData(prev => ({ ...prev, className: e.target.value }))}
-                  className="fet-select"
-                >
-                  <option value="">Select Class</option>
-                  {classes.map(c => (
-                    <option key={c.id} value={c.name}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
+              {offering && offering.schedules?.length > 0 && (
+                <div>
+                  <label className="fet-label">Timetable slot (optional)</label>
+                  <select
+                    value={formData.scheduleId}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, scheduleId: e.target.value }))}
+                    className="fet-select"
+                  >
+                    <option value="">Now (custom / unscheduled)</option>
+                    {offering.schedules.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {DAYS.includes(s.day_of_week) ? s.day_of_week : ''} {fmtTime(s.start_time)}–{fmtTime(s.end_time)} {s.location ? `· ${s.location}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="fet-label">Attendance Mode</label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, mode: 'STATION_BASED' }))}
+                    onClick={() => setFormData((prev) => ({ ...prev, mode: 'STATIONS' }))}
                     className={`p-4 rounded-xl border-2 transition-colors text-center ${
-                      formData.mode === 'STATION_BASED'
+                      formData.mode === 'STATIONS'
                         ? 'border-primary bg-primary/10 text-primary'
                         : 'border-border-default hover:border-primary'
                     }`}
                   >
                     <Users size={24} className="mx-auto mb-1" />
-                    <p className="text-sm font-medium">Station-Based</p>
-                    <p className="text-xs text-text-secondary">Students as QR stations</p>
+                    <p className="text-sm font-medium">Student Stations</p>
+                    <p className="text-xs text-text-secondary">Multiple student QR points</p>
                   </button>
                   <button
                     type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, mode: 'LECTURER_PROJECTED' }))}
+                    onClick={() => setFormData((prev) => ({ ...prev, mode: 'PROJECTOR' }))}
                     className={`p-4 rounded-xl border-2 transition-colors text-center ${
-                      formData.mode === 'LECTURER_PROJECTED'
+                      formData.mode === 'PROJECTOR'
                         ? 'border-primary bg-primary/10 text-primary'
                         : 'border-border-default hover:border-primary'
                     }`}
                   >
                     <QrCode size={24} className="mx-auto mb-1" />
                     <p className="text-sm font-medium">Projected QR</p>
-                    <p className="text-xs text-text-secondary">Lecturer displays QR</p>
+                    <p className="text-xs text-text-secondary">One QR on the screen</p>
                   </button>
                 </div>
               </div>
 
-              <button
-                onClick={() => setStep(2)}
-                className="w-full fet-btn-primary"
-              >
+              <button onClick={() => setStep(2)} className="w-full fet-btn-primary">
                 Continue →
               </button>
             </div>
           )}
 
-          {/* Step 2: Select Stations (only for STATION_BASED) */}
-          {step === 2 && formData.mode === 'STATION_BASED' && (
+          {/* Step 2: Options + Launch */}
+          {step === 2 && (
             <div className="space-y-4">
-              <div>
-                <label className="fet-label">Select QR Stations</label>
-                <p className="text-sm text-text-secondary mb-3">Select students who will display QR codes</p>
+              <div className="p-4 bg-page-bg rounded-xl">
+                <p className="font-medium text-text-primary">{offering.course_code} - {offering.course_title}</p>
+                <p className="text-sm text-text-secondary">
+                  {formData.mode === 'STATIONS' ? 'Student Stations mode' : 'Projected QR mode'}
+                  {schedule ? ` · scheduled ${fmtTime(schedule.start_time)}–${fmtTime(schedule.end_time)}` : ' · unscheduled / now'}
+                </p>
+                <p className="text-sm text-text-secondary">{offering.enrolled_students} students enrolled</p>
+              </div>
 
-                <div className="relative mb-4">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary" size={18} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="fet-label">Attendance window (minutes)</label>
                   <input
-                    type="text"
-                    placeholder="Search students..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="fet-input pl-10"
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={formData.windowMinutes}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, windowMinutes: Number(e.target.value) }))}
+                    className="fet-input"
                   />
+                  <p className="text-xs text-text-secondary mt-1">
+                    How long attendance stays open for students to scan.
+                  </p>
+                  <p className="text-[11px] text-text-secondary mt-1">
+                    The QR code itself refreshes every 10s for security &mdash; separate, and automatic.
+                  </p>
                 </div>
-
-                <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {filteredStudents.map(student => (
-                    <div
-                      key={student.matricule}
-                      onClick={() => handleSelectStudent(student)}
-                      className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-colors ${
-                        formData.stationStudents.find(s => s.matricule === student.matricule)
-                          ? 'bg-primary/10 border-2 border-primary'
-                          : 'bg-page-bg hover:bg-gray-100'
-                      }`}
-                    >
-                      <div>
-                        <p className="font-medium text-text-primary">{student.name}</p>
-                        <p className="text-sm text-text-secondary">{student.matricule}</p>
-                      </div>
-                      {formData.stationStudents.find(s => s.matricule === student.matricule) && (
-                        <Check size={18} className="text-primary" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-4 p-3 bg-page-bg rounded-xl">
-                  <p className="text-sm text-text-secondary">
-                    Selected: <span className="font-bold text-text-primary">{formData.stationStudents.length}</span>
+                <div>
+                  <label className="fet-label">Expected headcount (optional)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={formData.expectedHeadcount}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, expectedHeadcount: e.target.value }))}
+                    placeholder="Auto-close after N check-ins"
+                    className="fet-input"
+                  />
+                  <p className="text-xs text-text-secondary mt-1">
+                    Closes early once this many students have checked in.
                   </p>
                 </div>
               </div>
 
+              {formData.mode === 'STATIONS' && (
+                <div className="p-4 bg-page-bg rounded-xl">
+                  <p className="text-sm font-medium text-text-primary">Auto stations unlock after people check in</p>
+                  <p className="text-xs text-text-secondary mt-1">
+                    Stations are picked from students who are already verified present in this session. Once enough
+                    students have scanned, use the <strong>“Auto-select stations”</strong> button on the session screen
+                    to let the system pick them — it never guesses about who is actually in the room.
+                  </p>
+                </div>
+              )}
+
+              {formData.mode === 'PROJECTOR' && (
+                <div className="p-6 bg-page-bg rounded-xl text-center">
+                  <QrCode size={48} className="mx-auto text-primary mb-2" />
+                  <h4 className="text-lg font-semibold text-text-primary">Projected QR Mode</h4>
+                  <p className="text-sm text-text-secondary">One rotating QR will be shown on your screen — 200 students can scan it in a few minutes.</p>
+                </div>
+              )}
+
               <div className="flex gap-3">
-                <button
-                  onClick={() => setStep(1)}
-                  className="flex-1 fet-btn-secondary"
-                >
+                <button onClick={() => setStep(1)} className="flex-1 fet-btn-secondary" disabled={starting}>
                   Back
                 </button>
                 <button
                   onClick={handleSubmit}
-                  className="flex-1 fet-btn-success"
+                  disabled={starting}
+                  className="flex-1 fet-btn-success flex items-center justify-center gap-2"
                 >
-                  Launch Attendance
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: Projected QR Mode */}
-          {step === 2 && formData.mode === 'LECTURER_PROJECTED' && (
-            <div className="space-y-4">
-              <div className="p-6 bg-page-bg rounded-xl text-center">
-                <QrCode size={48} className="mx-auto text-primary mb-2" />
-                <h4 className="text-lg font-semibold text-text-primary">Projected QR Mode</h4>
-                <p className="text-sm text-text-secondary">QR code will be displayed on your device</p>
-                <p className="text-sm text-text-secondary">Students will scan from their phones</p>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setStep(1)}
-                  className="flex-1 fet-btn-secondary"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handleSubmit}
-                  className="flex-1 fet-btn-success"
-                >
+                  {starting && <Loader2 size={18} className="animate-spin" />}
                   Launch Attendance
                 </button>
               </div>
@@ -303,4 +264,7 @@ const AttendanceSession = ({ user, onClose, onCreated }) => {
   );
 };
 
-export default AttendanceSession;
+const AttendanceSessionModal = (props) =>
+  createPortal(<AttendanceSession {...props} />, document.body);
+
+export default AttendanceSessionModal;

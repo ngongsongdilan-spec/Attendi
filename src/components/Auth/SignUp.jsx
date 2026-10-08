@@ -1,5 +1,50 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Lock, Eye, EyeOff, User, UserPlus, ArrowLeft, Building, GraduationCap, BookOpen } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, User, UserPlus, ArrowLeft, Building, GraduationCap, BookOpen, BadgeCheck } from 'lucide-react';
+import { authApi } from '../../lib/auth';
+import { academicsApi } from '../../lib/academics';
+
+const normalizeFullName = (value) => {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return { first_name: '', last_name: '' };
+
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) {
+    return { first_name: parts[0], last_name: 'User' };
+  }
+
+  return {
+    first_name: parts[0],
+    last_name: parts.slice(1).join(' '),
+  };
+};
+
+const formatServerError = (errorData) => {
+  if (!errorData) return 'Unable to create account. Please try again.';
+
+  if (typeof errorData === 'string') return errorData;
+
+  if (Array.isArray(errorData)) {
+    return errorData.map((item) => formatServerError(item)).join(' ');
+  }
+
+  if (typeof errorData === 'object') {
+    const messages = [];
+    Object.values(errorData).forEach((value) => {
+      if (Array.isArray(value)) {
+        value.forEach((item) => messages.push(formatServerError(item)));
+      } else if (typeof value === 'string') {
+        messages.push(value);
+      } else if (value && typeof value === 'object') {
+        messages.push(formatServerError(value));
+      }
+    });
+
+    const clean = messages.filter(Boolean).map((item) => item.trim()).filter(Boolean);
+    return clean[0] || 'Unable to create account. Please try again.';
+  }
+
+  return 'Unable to create account. Please try again.';
+};
 
 const SignUp = ({ onSignUp, onSwitchToLogin }) => {
   const [showPassword, setShowPassword] = useState(false);
@@ -14,26 +59,39 @@ const SignUp = ({ onSignUp, onSwitchToLogin }) => {
     department: '',
     level: '',
     matricule: '',
+    personalEmail: '',
+    staffNumber: '',
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    const loadDepartments = () => {
+    const loadDepartments = async () => {
+      try {
+        const depts = await academicsApi.publicDepartments();
+        if (Array.isArray(depts) && depts.length > 0) {
+          setDepartments(depts);
+          return;
+        }
+      } catch {
+        // Fall back to local cache if the API is unavailable.
+      }
+
       let depts = JSON.parse(localStorage.getItem('fet_departments') || '[]');
-      if (depts.length === 0) {
+      if (!Array.isArray(depts) || depts.length === 0) {
         depts = [
-          { id: 1, name: 'Computer Engineering', code: 'CE', coordinator: 'Dr. Alida Vance' },
-          { id: 2, name: 'Civil Engineering', code: 'CVE', coordinator: 'Dr. Michael Brown' },
-          { id: 3, name: 'Chemical & Petroleum Engineering', code: 'CHE', coordinator: 'Dr. Emily Davis' },
-          { id: 4, name: 'Electrical & Electronic Engineering', code: 'EE', coordinator: 'Dr. David Wilson' },
-          { id: 5, name: 'Mechanical & Industrial Engineering', code: 'ME', coordinator: 'Dr. Robert Johnson' },
+          { id: '1', name: 'Computer Engineering', code: 'CE' },
+          { id: '2', name: 'Civil Engineering', code: 'CVE' },
+          { id: '3', name: 'Chemical & Petroleum Engineering', code: 'CHE' },
+          { id: '4', name: 'Electrical & Electronic Engineering', code: 'EE' },
+          { id: '5', name: 'Mechanical & Industrial Engineering', code: 'ME' },
         ];
         localStorage.setItem('fet_departments', JSON.stringify(depts));
       }
       setDepartments(depts);
     };
+
     loadDepartments();
   }, []);
 
@@ -43,59 +101,108 @@ const SignUp = ({ onSignUp, onSwitchToLogin }) => {
     setError('');
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
     setSuccess('');
 
-    if (!formData.fullName || !formData.email || !formData.password || !formData.department) {
-      setError('Please fill in all required fields');
+    const email = formData.email.trim().toLowerCase();
+    const password = formData.password;
+    const fullName = formData.fullName.trim();
+
+    if (!fullName || !email || !password || !formData.department) {
+      setError('Please fill in all required fields.');
       setIsLoading(false);
       return;
     }
+
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      setError('Please enter a valid email address.');
+      setIsLoading(false);
+      return;
+    }
+
+    if (password !== formData.confirmPassword) {
+      setError('Passwords do not match.');
+      setIsLoading(false);
+      return;
+    }
+
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters long.');
+      setIsLoading(false);
+      return;
+    }
+
     if (formData.role === 'student') {
-      if (!formData.matricule) { setError('Matricule number is required for students'); setIsLoading(false); return; }
-      if (!formData.level) { setError('Please select your level'); setIsLoading(false); return; }
+      if (!formData.matricule.trim()) {
+        setError('Matricule number is required for students.');
+        setIsLoading(false);
+        return;
+      }
+      if (!formData.level) {
+        setError('Please select your level.');
+        setIsLoading(false);
+        return;
+      }
+      if (!formData.personalEmail.trim()) {
+        setError('Personal email is required for students.');
+        setIsLoading(false);
+        return;
+      }
     }
-    if (formData.password !== formData.confirmPassword) { setError('Passwords do not match'); setIsLoading(false); return; }
-    if (formData.password.length < 6) { setError('Password must be at least 6 characters'); setIsLoading(false); return; }
 
-    const users = JSON.parse(localStorage.getItem('fet_users') || '[]');
-    if (users.find(u => u.email.toLowerCase() === formData.email.toLowerCase())) {
-      setError('User with this email already exists'); setIsLoading(false); return;
-    }
-    if (formData.role === 'student') {
-      const existingMatricule = users.find(u => u.matricule === formData.matricule.toUpperCase());
-      if (existingMatricule) { setError(`Matricule ${formData.matricule} is already taken.`); setIsLoading(false); return; }
+    if (formData.role === 'lecturer' && !formData.staffNumber.trim()) {
+      setError('Staff number is required for lecturers.');
+      setIsLoading(false);
+      return;
     }
 
-    const matricule = formData.role === 'student' ? formData.matricule.toUpperCase() : '';
-    const selectedDept = departments.find(d => d.name === formData.department);
+    const selectedDept = departments.find((dept) => {
+      if (typeof dept.id === 'string' && dept.id === formData.department) return true;
+      if (dept.name && dept.name === formData.department) return true;
+      return false;
+    });
 
-    const newUser = {
-      id: Date.now(),
-      fullName: formData.fullName,
-      email: formData.email.toLowerCase(),
-      password: formData.password,
-      role: formData.role,
-      department: formData.department,
-      level: formData.role === 'student' ? formData.level : '',
-      matricule: matricule,
-      createdAt: new Date().toISOString(),
+    if (!selectedDept) {
+      setError('Please select a valid department.');
+      setIsLoading(false);
+      return;
+    }
+
+    const { first_name, last_name } = normalizeFullName(fullName);
+
+    const payload = {
+      email,
+      password,
+      password_confirm: formData.confirmPassword,
+      first_name,
+      last_name,
+      department: selectedDept.id,
+      role: formData.role.toUpperCase(),
+      ...(formData.role === 'student' && {
+        matricule: formData.matricule.trim().toUpperCase(),
+        level: formData.level,
+        personal_email: formData.personalEmail.trim().toLowerCase(),
+      }),
+      ...(formData.role === 'lecturer' && {
+        staff_number: formData.staffNumber.trim(),
+      }),
     };
 
-    users.push(newUser);
-    localStorage.setItem('fet_users', JSON.stringify(users));
-
-    const coordName = selectedDept?.coordinator || 'Not Assigned';
-    setSuccess(`Welcome ${formData.fullName}!`);
-    if (formData.role === 'student') {
-      setSuccess(prev => prev + `\nMatricule: ${matricule} • Level ${formData.level}`);
+    try {
+      const response = await authApi.selfRegister(payload);
+      setSuccess(response.data?.message || 'Account created successfully. Please sign in.');
+      setTimeout(() => {
+        setIsLoading(false);
+        onSwitchToLogin();
+      }, 1200);
+    } catch (err) {
+      setIsLoading(false);
+      const message = formatServerError(err.response?.data || err.message);
+      setError(message);
     }
-    setSuccess(prev => prev + `\nDepartment: ${formData.department} • Coordinator: ${coordName}`);
-
-    setTimeout(() => { setIsLoading(false); onSignUp(newUser); }, 1500);
   };
 
   const inputBase = "fet-input";
@@ -136,7 +243,7 @@ const SignUp = ({ onSignUp, onSwitchToLogin }) => {
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary" size={16} />
                 <input type="email" name="email" value={formData.email} onChange={handleChange}
-                  placeholder="you@fet.edu" className={`${inputBase} pl-10`} required />
+                  placeholder="you@domain.com" className={`${inputBase} pl-10`} required />
               </div>
             </div>
 
@@ -165,7 +272,7 @@ const SignUp = ({ onSignUp, onSwitchToLogin }) => {
                   <option value="">-- Select Department --</option>
                   {departments.length > 0 ? (
                     departments.map(dept => (
-                      <option key={dept.id} value={dept.name}>{dept.name} ({dept.code})</option>
+                      <option key={dept.id} value={dept.id}>{dept.name} ({dept.code || 'Dept'})</option>
                     ))
                   ) : (
                     <option value="" disabled>Loading departments...</option>
@@ -191,21 +298,37 @@ const SignUp = ({ onSignUp, onSwitchToLogin }) => {
                     <GraduationCap className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary" size={16} />
                     <select name="level" value={formData.level} onChange={handleChange} className={`${inputBase} pl-10`} required>
                       <option value="">Select Level</option>
-                      <option value="100">100 Level</option>
                       <option value="200">200 Level</option>
                       <option value="300">300 Level</option>
                       <option value="400">400 Level</option>
                       <option value="500">500 Level</option>
-                      <option value="MSc">MSc</option>
-                      <option value="PhD">PhD</option>
                     </select>
+                  </div>
+                </div>
+                <div>
+                  <label className={labelBase}>Personal Email *</label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary" size={16} />
+                    <input type="email" name="personalEmail" value={formData.personalEmail} onChange={handleChange}
+                      placeholder="you@gmail.com" className={`${inputBase} pl-10`} required />
                   </div>
                 </div>
               </>
             )}
 
+            {formData.role === 'lecturer' && (
+              <div>
+                <label className={labelBase}>Staff Number *</label>
+                <div className="relative">
+                  <BadgeCheck className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary" size={16} />
+                  <input type="text" name="staffNumber" value={formData.staffNumber} onChange={handleChange}
+                    placeholder="e.g., STF0099" className={`${inputBase} pl-10 uppercase`} required />
+                </div>
+              </div>
+            )}
+
             <div>
-              <label className={labelBase}>Password * (min 6)</label>
+              <label className={labelBase}>Password * (min 8)</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary" size={16} />
                 <input type={showPassword ? 'text' : 'password'} name="password" value={formData.password} onChange={handleChange}

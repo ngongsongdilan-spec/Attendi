@@ -1,42 +1,62 @@
-import React, { useState, useEffect } from 'react';
-import { useAppContext } from '../../context/AppContext';
-import { QrCode, RefreshCw, Clock, Users } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { RefreshCw, Clock, Users, Loader2 } from 'lucide-react';
+import attendanceApi from '../../lib/attendance';
+import QRCodeDisplay from './QRCode';
 
-const StationQR = ({ session, user }) => {
-  const { updateSessionToken } = useAppContext();
-  const [timeLeft, setTimeLeft] = useState(10);
-  const [token, setToken] = useState(session?.token || 'TOKEN-XXXX');
+const REFRESH_MS = 9000;
+
+const StationQR = ({ sessionId, station }) => {
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [token, setToken] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [scanStats, setScanStats] = useState(null);
+
+  // Memoised on sessionId so the refresh effect below can depend on it without
+  // tearing down and rebuilding the interval on every render.
+  const fetchToken = useCallback(async () => {
+    if (!sessionId) return;
+    setError('');
+    try {
+      const data = await attendanceApi.myStationToken(sessionId);
+      setToken(data.token);
+      setTimeLeft(data.expires_in_seconds || 10);
+      setScanStats({
+        scans_at_station: data.scans_at_station,
+        scans_remaining: data.scans_remaining,
+        total_checked_in: data.total_checked_in,
+        expected_headcount: data.expected_headcount,
+      });
+    } catch (err) {
+      // If the window closed (or we are no longer a station), never keep
+      // showing a dead QR.
+      const code = err.response?.data?.error?.code;
+      if (code === 'SESSION_EXPIRED' || code === 'FORBIDDEN') {
+        setToken(null);
+        setScanStats(null);
+        setTimeLeft(0);
+      }
+      setError(err.response?.data?.error?.message || 'Could not load your station token.');
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionId]);
 
   useEffect(() => {
-    if (!session) return;
-
-    const timer = setInterval(() => {
-      const remaining = Math.max(0, Math.round((session.tokenExpiresAt - Date.now()) / 1000));
-      setTimeLeft(remaining);
-      
-      if (remaining === 0) {
-        updateSessionToken(session.id);
-        const updatedSession = JSON.parse(localStorage.getItem('fet_attendance_sessions') || '[]')
-          .find(s => s.id === session.id);
-        if (updatedSession) {
-          setToken(updatedSession.token);
-        }
-        setTimeLeft(10);
-      }
-    }, 1000);
-
+    fetchToken();
+    const timer = setInterval(fetchToken, REFRESH_MS);
     return () => clearInterval(timer);
-  }, [session, updateSessionToken]);
+  }, [fetchToken]);
 
-  const handleRefresh = () => {
-    updateSessionToken(session.id);
-    const updatedSession = JSON.parse(localStorage.getItem('fet_attendance_sessions') || '[]')
-      .find(s => s.id === session.id);
-    if (updatedSession) {
-      setToken(updatedSession.token);
-      setTimeLeft(10);
-    }
-  };
+  useEffect(() => {
+    const tick = setInterval(() => {
+      setTimeLeft((t) => Math.max(0, t - 1));
+    }, 1000);
+    return () => clearInterval(tick);
+  }, []);
+
+  const courseCode = station?.course_code || 'Course';
+  const className = station?.class_name || '—';
 
   return (
     <div className="mt-4 p-4 bg-gradient-to-r from-[#0F0B3D] to-[#3F35B5] rounded-xl text-white">
@@ -51,20 +71,39 @@ const StationQR = ({ session, user }) => {
         </div>
       </div>
 
+      {error && <p className="text-xs text-red-200 mb-2">{error}</p>}
+
       <div className="bg-white rounded-xl p-6 text-center">
-        <div className="inline-block p-4 bg-white rounded-xl border-2 border-primary">
-          <QrCode size={120} className="text-[#0F0B3D]" />
-        </div>
-        <p className="text-text-secondary font-mono text-sm mt-2">{token}</p>
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : token ? (
+          <QRCodeDisplay value={token} size={160} className="mx-auto rounded-lg" />
+        ) : (
+          <p className="text-text-secondary text-sm py-8">No token yet — share this screen with classmates.</p>
+        )}
+        <p className="text-text-secondary font-mono text-xs mt-2 break-all">{token || ''}</p>
         <p className="text-xs text-text-secondary mt-1">Students scan this QR to mark attendance</p>
       </div>
 
+      {scanStats && (
+        <div className="mt-3 flex justify-between text-xs text-white/80">
+          <span>Scanned at your station: <span className="font-bold">{scanStats.scans_at_station}</span></span>
+          {scanStats.scans_remaining !== null && scanStats.scans_remaining !== undefined && (
+            <span>Scans left: <span className="font-bold">{scanStats.scans_remaining}</span></span>
+          )}
+          <span>Checked in: <span className="font-bold">{scanStats.total_checked_in}</span></span>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mt-4">
         <p className="text-sm text-white/80">
-          {timeLeft > 0 ? `Token expires in ${timeLeft}s` : 'Token expired'}
+          {courseCode} · {className}
         </p>
         <button
-          onClick={handleRefresh}
+          onClick={fetchToken}
+          disabled={loading}
           className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors"
         >
           <RefreshCw size={16} />
