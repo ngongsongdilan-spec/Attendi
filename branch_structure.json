@@ -1,0 +1,42 @@
+{
+  "default_branch": "services",
+  "branches": [
+    "Backend_api_atendance",
+    "backend",
+    "backend_models",
+    "complete",
+    "database",
+    "frontend",
+    "frontend-from-backend-team",
+    "frontend-wirsiy",
+    "main",
+    "origin",
+    "services"
+  ],
+  "parent": {
+    "Backend_api_atendance": "services",
+    "backend": "services",
+    "backend_models": "services",
+    "complete": "services",
+    "database": "services",
+    "frontend": "services",
+    "frontend-from-backend-team": "frontend",
+    "frontend-wirsiy": "frontend",
+    "main": "services",
+    "origin": "services",
+    "services": null
+  },
+  "order": [
+    "services",
+    "Backend_api_atendance",
+    "backend",
+    "backend_models",
+    "complete",
+    "database",
+    "frontend",
+    "main",
+    "origin",
+    "frontend-from-backend-team",
+    "frontend-wirsiy"
+  ]
+}
