@@ -2,6 +2,7 @@
 
 Cookie-based JWT. Returns tokens both in cookies AND body for dev flexibility.
 """
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
 from rest_framework import status
@@ -9,6 +10,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
+from rest_framework_simplejwt.exceptions import TokenError
 
 from apps.audit.services import audit
 
@@ -18,6 +20,7 @@ from django.views.decorators.csrf import csrf_exempt
 from .authentication import (
     clear_jwt_cookies,
     get_token_pair_for_user,
+    set_jwt_cookie_values,
     set_jwt_cookies,
 )
 from .serializers import MeSerializer, RegisterSerializer, SelfRegisterSerializer
@@ -193,34 +196,57 @@ class LogoutView(APIView):
 
 
 class TokenRefreshView(APIView):
+    """POST /api/v1/auth/refresh/ — rotate the refresh cookie, mint a new access.
+
+    Delegates to SimpleJWT's own serializer rather than hand-rolling rotation.
+    The previous implementation called ``RefreshToken.rotate()``, which does not
+    exist in SimpleJWT: every refresh raised AttributeError and returned a 500.
+    The axios interceptor treats any failed refresh as a dead session, so once
+    the 2h access token expired, *every* user was silently signed out.
+    """
+
     permission_classes = [AllowAny]
     throttle_classes = [AnonRateThrottle]
     throttle_scope = "login"
 
     def post(self, request):
-        from rest_framework_simplejwt.tokens import RefreshToken
+        from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 
-        cookie_refresh = request.COOKIES.get("fet_refresh")
+        refresh_cookie = request.COOKIES.get(settings.COOKIE_NAME_REFRESH)
         body_refresh = request.data.get("refresh")
-        token_str = cookie_refresh or body_refresh
+        token_str = refresh_cookie or body_refresh
         if not token_str:
             return Response(
                 {"success": False, "error": {"code": "VALIDATION_ERROR", "message": "Refresh token required."}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # An invalid, expired, or already-blacklisted refresh token raises a
+        # bare TokenError (SimpleJWT does not wrap it in a DRF exception), which
+        # would otherwise escape as an unhandled HTTP 500. AuthenticationFailed,
+        # by contrast, is handled by DRF and already renders as a 401.
+        serializer = TokenRefreshSerializer(data={"refresh": token_str})
         try:
-            refresh = RefreshToken(token_str)
-            user_id = refresh["user_id"]
-            user = User.objects.get(id=user_id)
-        except Exception:
+            serializer.is_valid(raise_exception=True)
+        except TokenError:
             return Response(
-                {"success": False, "error": {"code": "UNAUTHENTICATED", "message": "Invalid or expired refresh token."}},
+                {
+                    "success": False,
+                    "error": {
+                        "code": "UNAUTHENTICATED",
+                        "message": "Invalid or expired refresh token.",
+                    },
+                },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
-        refresh.rotate()
-        # New tokens are delivered only via httpOnly cookies.
+
+        data = serializer.validated_data
+        # With ROTATE_REFRESH_TOKENS the serializer returns a replacement refresh
+        # and blacklists the old one; the fallback only applies if rotation is off.
         resp = Response({"message": "Token refreshed."})
-        return set_jwt_cookies(resp, refresh)
+        return set_jwt_cookie_values(
+            resp, str(data["access"]), str(data.get("refresh") or token_str)
+        )
 
 
 class MeView(APIView):

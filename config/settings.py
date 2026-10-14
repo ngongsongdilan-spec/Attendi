@@ -231,11 +231,25 @@ else:
 COOKIE_SECURE = env_bool("COOKIE_SECURE", IS_PRODUCTION)
 COOKIE_SAMESITE = env("COOKIE_SAMESITE", "Lax")
 
+# Same-site cookie auth requires the SPA and the API to share an origin. The
+# frontend's vercel.json rewrites /api/* here, so the browser sees a single
+# origin and these stay first-party cookies. If you ever move the API back to a
+# separate domain, `SameSite=None` is NOT enough on iOS: Safari drops
+# third-party cookies outright (ITP), so sign-in silently fails on iPhones.
+COOKIE_DOMAIN = env("COOKIE_DOMAIN", "") or None
+
+# CHIPS (Cookies Having Independent Partitioned State). Auto-enables only in the
+# cross-site case, where it is the one attribute Safari 17+/iOS 17+ honours for
+# third-party cookies. Same-site deployments keep Lax and change nothing.
+COOKIE_PARTITIONED = env_bool("COOKIE_PARTITIONED", str(COOKIE_SAMESITE).lower() == "none")
+
 if IS_PRODUCTION:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", True)
     SESSION_COOKIE_SECURE = True
+    SESSION_COOKIE_SAMESITE = COOKIE_SAMESITE
     CSRF_COOKIE_SECURE = True
+    CSRF_COOKIE_SAMESITE = COOKIE_SAMESITE
     SECURE_HSTS_SECONDS = env_int("SECURE_HSTS_SECONDS", 31536000)  # 1 year
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True

@@ -17,8 +17,12 @@ services:
         value: https://fet-platform.vercel.app
       - key: CSRF_TRUSTED_ORIGINS
         value: https://fet-platform.vercel.app
+      # Keep 'Lax'. The SPA and API share one origin via the frontend's
+      # vercel.json rewrite, so the JWT cookies are first-party.
+      # 'None' would make them third-party cookies, which iOS Safari (ITP)
+      # discards -> login succeeds then bounces back to the login page.
       - key: COOKIE_SAMESITE
-        value: "None"
+        value: "Lax"
       - key: GUNICORN_WORKERS
         value: "2"
       - key: DATABASE_URL
