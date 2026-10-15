@@ -13,7 +13,6 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 htmlcov/
-temp_auto_push.bat
 .coverage
 
 # Local development database and uploaded files
@@ -30,5 +29,3 @@ staticfiles/
 *.swo
 .vercel
 .env*
-.gitignore
-branch_structure.json
