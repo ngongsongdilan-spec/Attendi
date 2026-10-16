@@ -53,6 +53,13 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedUUIDModel):
     date_of_birth = models.DateField(null=True, blank=True)
     last_login_at = models.DateTimeField(null=True, blank=True)
 
+    # Password reset via a 6-digit emailed OTP. Only the SHA-256 hash of the
+    # code is stored, so a database leak cannot be used to reset a password.
+    # All three fields are cleared once a reset succeeds (or the code burns).
+    reset_otp_hash = models.CharField(max_length=64, null=True, blank=True, db_index=True)
+    reset_otp_expires = models.DateTimeField(null=True, blank=True)
+    reset_otp_attempts = models.PositiveIntegerField(default=0)
+
     objects = UserManager()
 
     USERNAME_FIELD = "email"

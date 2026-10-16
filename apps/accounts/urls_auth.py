@@ -10,6 +10,6 @@ urlpatterns = [
     path("refresh/", views_auth.TokenRefreshView.as_view(), name="auth-refresh"),
     path("me/", views_auth.MeView.as_view(), name="auth-me"),
     path("change-password/", views_auth.ChangePasswordView.as_view(), name="auth-change-password"),
-    path("forgot-password/", views_auth.ForgotPasswordView.as_view(), name="auth-forgot-password"),
-    path("reset-password/", views_auth.ResetPasswordView.as_view(), name="auth-reset-password"),
+    path("forgot-password/request-otp/", views_auth.RequestOtpView.as_view(), name="auth-request-otp"),
+    path("reset-password/confirm/", views_auth.ConfirmResetView.as_view(), name="auth-confirm-reset"),
 ]

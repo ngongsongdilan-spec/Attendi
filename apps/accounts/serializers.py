@@ -1,3 +1,4 @@
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from .models import LecturerProfile, StudentProfile, User
@@ -279,3 +280,49 @@ class StudentListSerializer(serializers.ModelSerializer):
 
     def get_full_name(self, obj):
         return obj.get_full_name()
+
+
+# ---------------------------------------------------------------------------
+# Password reset
+# ---------------------------------------------------------------------------
+
+class RequestOtpSerializer(serializers.Serializer):
+    """Accepts the account email. Existence is never revealed to the caller."""
+
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+
+class ConfirmResetSerializer(serializers.Serializer):
+    """Validates the emailed 6-digit OTP + the new password.
+
+    The password is run through Django's configured validators here, so a weak
+    password is rejected with a 400 before any OTP is consumed. ``newPassword``
+    is accepted as an alias for ``new_password`` for API clients that use
+    camelCase.
+    """
+
+    email = serializers.EmailField()
+    otp = serializers.CharField(min_length=6, max_length=6)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+    def to_internal_value(self, data):
+        if "new_password" not in data and "newPassword" in data:
+            data = data.copy()
+            data["new_password"] = data.get("newPassword")
+        return super().to_internal_value(data)
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+    def validate_otp(self, value):
+        value = value.strip()
+        if not value.isdigit():
+            raise serializers.ValidationError("OTP must be a 6-digit code.")
+        return value
+
+    def validate_new_password(self, value):
+        validate_password(value)
+        return value

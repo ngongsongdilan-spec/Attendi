@@ -260,6 +260,16 @@ if IS_PRODUCTION:
 X_FRAME_OPTIONS = env("X_FRAME_OPTIONS", "DENY")
 
 # ---------------------------------------------------------------------------
+# Password reset (6-digit emailed OTP, see apps/core/emailing.py).
+# ---------------------------------------------------------------------------
+# Base URL of the SPA (kept for links that may be added to messages later).
+FRONTEND_URL = env("FRONTEND_URL", "https://fet-platform.vercel.app")
+# How long an emailed OTP stays valid, and how many wrong guesses are allowed
+# before the code is burned and a fresh one must be requested.
+PASSWORD_RESET_OTP_TTL_MINUTES = env_int("PASSWORD_RESET_OTP_TTL_MINUTES", 10)
+PASSWORD_RESET_OTP_MAX_ATTEMPTS = env_int("PASSWORD_RESET_OTP_MAX_ATTEMPTS", 5)
+
+# ---------------------------------------------------------------------------
 # DRF - consistent JSON envelope, JWT auth from httpOnly cookie or header.
 # ---------------------------------------------------------------------------
 REST_FRAMEWORK = {
@@ -284,6 +294,8 @@ REST_FRAMEWORK = {
         "attendance_scan": "60/minute",      # per-user scan cap
         "attendance_start": "10/minute",     # launching sessions
         "attendance_admin": "20/minute",     # tokens, checkpoints, corrections
+        # Password reset abuse protection (3 requests / 15 min per IP).
+        "password_reset": "3/15min",
     },
 }
 

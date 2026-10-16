@@ -2,9 +2,14 @@
 
 Cookie-based JWT. Returns tokens both in cookies AND body for dev flexibility.
 """
+import hashlib
+import secrets
+from datetime import timedelta
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -23,7 +28,15 @@ from .authentication import (
     set_jwt_cookie_values,
     set_jwt_cookies,
 )
-from .serializers import MeSerializer, RegisterSerializer, SelfRegisterSerializer
+from .emails import send_password_changed_email, send_password_reset_otp_email
+from .serializers import (
+    ConfirmResetSerializer,
+    MeSerializer,
+    RegisterSerializer,
+    RequestOtpSerializer,
+    SelfRegisterSerializer,
+)
+from .throttling import PasswordResetThrottle
 
 User = get_user_model()
 
@@ -264,21 +277,164 @@ class MeView(APIView):
         return Response(MeSerializer(request.user).data)
 
 
-class ForgotPasswordView(APIView):
+def _hash_otp(raw_otp):
+    """SHA-256 hex digest. The DB only ever stores this, never the raw code."""
+    return hashlib.sha256(raw_otp.encode("utf-8")).hexdigest()
+
+
+def _generate_otp():
+    """A cryptographically secure 6-digit code (never use the ``random`` module)."""
+    return f"{secrets.randbelow(900000) + 100000}"
+
+
+def _invalid_otp():
+    return {
+        "success": False,
+        "error": {"code": "INVALID_OTP", "message": "Invalid OTP code."},
+    }
+
+
+def _revoke_all_refresh_tokens(user):
+    """Blacklist every outstanding refresh token so all sessions are killed.
+
+    Runs after a successful reset: if an attacker knew the old password and
+    held a live session, that session dies the moment the victim resets.
+    """
+    from rest_framework_simplejwt.token_blacklist.models import (
+        BlacklistedToken,
+        OutstandingToken,
+    )
+
+    for token in OutstandingToken.objects.filter(user=user):
+        BlacklistedToken.objects.get_or_create(token=token)
+
+
+class RequestOtpView(APIView):
+    """POST /api/v1/auth/forgot-password/request-otp/  { "email": "..." }
+
+    Always returns the same generic 200, whether or not the email is registered,
+    so the endpoint cannot be used to enumerate accounts.
+    """
+
     permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [PasswordResetThrottle]
+
+    GENERIC_MESSAGE = "If an account exists with this email, an OTP has been sent."
 
     def post(self, request):
-        return Response(
-            {"success": True, "data": {"message": "If an account with that email exists, a reset link has been sent."}},
-            status=status.HTTP_200_OK,
-        )
+        serializer = RequestOtpSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        if user is not None:
+            otp = _generate_otp()
+            user.reset_otp_hash = _hash_otp(otp)
+            user.reset_otp_expires = timezone.now() + timedelta(
+                minutes=settings.PASSWORD_RESET_OTP_TTL_MINUTES
+            )
+            user.reset_otp_attempts = 0
+            user.save(
+                update_fields=[
+                    "reset_otp_hash",
+                    "reset_otp_expires",
+                    "reset_otp_attempts",
+                    "updated_at",
+                ]
+            )
+            send_password_reset_otp_email(user, otp)
+            audit(
+                user=user,
+                action="PASSWORD_RESET_REQUESTED",
+                resource_type="User",
+                resource_id=user.id,
+                request=request,
+            )
+
+        return Response({"message": self.GENERIC_MESSAGE}, status=status.HTTP_200_OK)
 
 
-class ResetPasswordView(APIView):
+class ConfirmResetView(APIView):
+    """POST /api/v1/auth/reset-password/confirm/
+
+    { "email": "...", "otp": "123456", "new_password": "..." }
+
+    The OTP is single-use, expires after a short window, and is burned after a
+    handful of wrong guesses so a 6-digit code cannot be brute-forced.
+    """
+
     permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [AnonRateThrottle]
+    throttle_scope = "login"
 
     def post(self, request):
-        return Response(
-            {"success": True, "data": {"message": "Password reset is not yet implemented. Contact your administrator."}},
-            status=status.HTTP_200_OK,
+        serializer = ConfirmResetSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        otp = serializer.validated_data["otp"]
+        new_password = serializer.validated_data["new_password"]
+
+        user = User.objects.filter(email__iexact=email).first()
+        if (
+            user is None
+            or not user.reset_otp_hash
+            or user.reset_otp_expires is None
+            or user.reset_otp_expires <= timezone.now()
+        ):
+            return Response(_invalid_otp(), status=status.HTTP_400_BAD_REQUEST)
+
+        if user.reset_otp_attempts >= settings.PASSWORD_RESET_OTP_MAX_ATTEMPTS:
+            user.reset_otp_hash = None
+            user.reset_otp_expires = None
+            user.reset_otp_attempts = 0
+            user.save(
+                update_fields=[
+                    "reset_otp_hash",
+                    "reset_otp_expires",
+                    "reset_otp_attempts",
+                    "updated_at",
+                ]
+            )
+            return Response(
+                {
+                    "success": False,
+                    "error": {
+                        "code": "TOO_MANY_ATTEMPTS",
+                        "message": "Too many failed attempts. Request a new OTP.",
+                    },
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        if not secrets.compare_digest(_hash_otp(otp), user.reset_otp_hash):
+            user.reset_otp_attempts += 1
+            user.save(update_fields=["reset_otp_attempts", "updated_at"])
+            return Response(_invalid_otp(), status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.reset_otp_hash = None
+        user.reset_otp_expires = None
+        user.reset_otp_attempts = 0
+        user.must_change_password = False
+        user.save(
+            update_fields=[
+                "password",
+                "reset_otp_hash",
+                "reset_otp_expires",
+                "reset_otp_attempts",
+                "must_change_password",
+                "updated_at",
+            ]
         )
+        _revoke_all_refresh_tokens(user)
+        send_password_changed_email(user)
+        audit(
+            user=user,
+            action="PASSWORD_RESET_COMPLETED",
+            resource_type="User",
+            resource_id=user.id,
+            request=request,
+        )
+        return Response({"message": "Password successfully updated."}, status=status.HTTP_200_OK)
