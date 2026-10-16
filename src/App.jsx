@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
 import Sidebar from './components/Layout/Sidebar';
 import Header from './components/Layout/Header';
+import ScrollManager from './components/Layout/ScrollManager';
 import DashboardHome from './components/Dashboard/DashboardHome';
 import StudentDashboard from './components/Dashboard/StudentDashboard';
 import LecturerDashboard from './components/Dashboard/LecturerDashboard';
@@ -124,18 +125,19 @@ function App() {
   return (
     <AppProvider>
       <Router>
-        <div className="app-container flex h-screen bg-page-bg">
+        <ScrollManager />
+        <div className="app-container flex bg-page-bg">
           <Sidebar onLogout={handleLogout} userName={userName} userRole={userRole} />
           <div className="flex-1 flex flex-col overflow-hidden min-w-0">
             <Header user={user} onLogout={handleLogout} />
-            <main className="flex-1 overflow-y-auto p-4 md:p-6">
+            <main className="app-scroll flex-1 p-4 md:p-6">
               <Routes>
                 <Route path="/" element={<DashboardHome />} />
                 <Route path="/dashboard" element={<DashboardHome />} />
                 <Route path="/student-dashboard" element={<StudentDashboard user={user} />} />
                 <Route path="/lecturer-dashboard" element={<LecturerDashboard user={user} />} />
                 <Route path="/coordinator-dashboard" element={<CoordinatorDashboard user={user} />} />
-                <Route path="/profile" element={<ProfilePage user={user} />} />
+                <Route path="/profile" element={<ProfilePage user={user} onLogout={handleLogout} />} />
                 <Route path="/courses" element={<CourseCatalogue user={user} />} />
                 <Route path="/attendance" element={<AttendanceDashboard user={user} />} />
                 <Route path="/projects" element={<ProjectsList />} />

@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Users, BookOpen, FolderKanban, Building, UserPlus, AlertCircle, Shield } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../../context/AppContext';
 import StatsCard from '../../components/Dashboard/StatsCard';
 
-const AdminDashboard = ({ user }) => {
+const AdminDashboard = () => {
   const navigate = useNavigate();
   const { students, lecturers, courses, projects } = useAppContext();
   const [stats, setStats] = useState({
@@ -45,7 +45,7 @@ const AdminDashboard = ({ user }) => {
           </div>
           <div>
             <h2 className="text-[20px] md:text-[22px] font-bold">Admin Dashboard</h2>
-            <p className="text-white/50 text-[13px]">Faculty of Engineering and Technology</p>
+            <p className="text-white/80 text-[13px]">Faculty of Engineering and Technology</p>
           </div>
         </div>
       </div>
@@ -79,19 +79,19 @@ const AdminDashboard = ({ user }) => {
           <h3 className="text-[15px] font-semibold text-text-primary mb-4">Recent Activity</h3>
           <div className="space-y-2">
             <div className="flex items-center gap-3 p-3 rounded-xl bg-page-bg">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(22,163,74,0.1)' }}>
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(22,163,74,0.1)' }}>
                 <UserPlus size={14} className="text-success" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-[13px] font-medium text-text-primary">New student enrolled</p>
                 <p className="text-[11px] text-text-secondary">2 mins ago</p>
               </div>
             </div>
             <div className="flex items-center gap-3 p-3 rounded-xl bg-page-bg">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(63,53,181,0.1)' }}>
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(63,53,181,0.1)' }}>
                 <BookOpen size={14} className="text-primary" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-[13px] font-medium text-text-primary">Course added: CEF444</p>
                 <p className="text-[11px] text-text-secondary">1 hour ago</p>
               </div>

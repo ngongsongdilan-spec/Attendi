@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { 
-  Save, FileText, Users, Target, Code, Award, 
-  Presentation, Search, ChevronRight, X, CheckCircle, Star
+  Save, FileText, Users, Target, Code,
+  Presentation, Search, CheckCircle, Star
 } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 
@@ -19,7 +19,7 @@ const ContinuousAssessment = ({ user }) => {
   });
   const [feedback, setFeedback] = useState('');
   const [success, setSuccess] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
+  const [, setIsEditing] = useState(false);
 
   const userRole = user?.role || 'student';
   const isLecturer = userRole === 'lecturer' || userRole === 'admin';
@@ -152,11 +152,11 @@ const ContinuousAssessment = ({ user }) => {
           <div className="flex items-start justify-between flex-wrap gap-4">
             <div>
               <h2 className="text-2xl font-bold">Assessment Results</h2>
-              <p className="text-[#8683BA] mt-1">View your released continuous assessment results</p>
-              <p className="text-[#8683BA] text-sm mt-1">🎓 {user?.fullName || 'Student'} • {user?.matricule || ''}</p>
+              <p className="text-white/80 mt-1">View your released continuous assessment results</p>
+              <p className="text-white/80 text-sm mt-1">🎓 {user?.fullName || 'Student'} • {user?.matricule || ''}</p>
             </div>
             <div className="bg-white/10 rounded-xl px-4 py-2 text-center">
-              <p className="text-xs text-[#8683BA]">Total Score</p>
+              <p className="text-xs text-white/70">Total Score</p>
               <p className="text-xl font-bold">{myResult ? `${myResult.total}/100` : '—'}</p>
             </div>
           </div>
@@ -187,7 +187,7 @@ const ContinuousAssessment = ({ user }) => {
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-text-primary">{cat.label}</p>
-                      <div className="w-full h-2 bg-[#D9DADB] rounded-full mt-1">
+                      <div className="w-full h-2 bg-border-default rounded-full mt-1">
                         <div
                           className="h-full bg-gradient-to-r from-primary to-[#8B5CF6] rounded-full"
                           style={{ width: `${pct}%` }}
@@ -225,11 +225,11 @@ const ContinuousAssessment = ({ user }) => {
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
             <h2 className="text-2xl font-bold">Continuous Assessment</h2>
-            <p className="text-[#8683BA] mt-1">Assess students across the entire project journey</p>
-            <p className="text-[#8683BA] text-sm mt-1">👨‍🏫 {lecturerName} • {lecturerDepartment}</p>
+            <p className="text-white/80 mt-1">Assess students across the entire project journey</p>
+            <p className="text-white/80 text-sm mt-1">👨‍🏫 {lecturerName} • {lecturerDepartment}</p>
           </div>
           <div className="bg-white/10 rounded-xl px-4 py-2 text-center">
-            <p className="text-xs text-[#8683BA]">Students</p>
+            <p className="text-xs text-white/80">Students</p>
             <p className="text-xl font-bold">{assessmentStudents.length}</p>
           </div>
         </div>

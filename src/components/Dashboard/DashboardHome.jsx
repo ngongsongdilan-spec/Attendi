@@ -1,4 +1,3 @@
-import React from 'react';
 import StudentDashboard from './StudentDashboard';
 import LecturerDashboard from './LecturerDashboard';
 import CoordinatorDashboard from './CoordinatorDashboard';

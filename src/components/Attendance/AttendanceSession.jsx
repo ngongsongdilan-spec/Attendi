@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { X, Users, QrCode, ChevronRight, Search, Check } from 'lucide-react';
 
@@ -42,7 +42,7 @@ const AttendanceSession = ({ user, onClose, onCreated }) => {
   ];
 
   // Class -> eligible students mapping (mock enrolment)
-  const getEligibleForClass = (className) => {
+  const getEligibleForClass = (_className) => {
     const byMatricule = { FE24A389: 'Alex Scholar', FE24B456: 'Emma Watson', FE23C789: 'James Miller', FE25D012: 'Sarah Connor' };
     return { ids: Object.keys(byMatricule), names: byMatricule };
   };

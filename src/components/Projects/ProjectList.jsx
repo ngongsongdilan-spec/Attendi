@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
-import { Plus, Filter, Search, X, Edit2, Trash2, FolderKanban } from 'lucide-react';
+import { Plus, Search, X, Edit2, Trash2, FolderKanban } from 'lucide-react';
 import ProjectCard from './ProjectCard';
 import ProjectForm from './ProjectForm';
 
@@ -90,7 +90,7 @@ const ProjectsList = () => {
                 className="p-1.5 bg-white rounded-lg shadow-md hover:bg-red-50 transition-colors"
                 title="Delete Project"
               >
-                <Trash2 size={15} className="text-red-500" />
+                <Trash2 size={15} className="text-danger" />
               </button>
             </div>
           </div>

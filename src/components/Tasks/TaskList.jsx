@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { Plus, Search, CheckCircle, Clock, AlertCircle, X } from 'lucide-react';
 import TaskForm from './TaskForm';
@@ -18,9 +18,9 @@ const TaskList = () => {
 
   const getStatusIcon = (status) => {
     switch(status) {
-      case 'Completed': return <CheckCircle size={16} className="text-green-500" />;
-      case 'In Progress': return <Clock size={16} className="text-yellow-500" />;
-      default: return <AlertCircle size={16} className="text-gray-400" />;
+      case 'Completed': return <CheckCircle size={16} className="text-success" />;
+      case 'In Progress': return <Clock size={16} className="text-warning" />;
+      default: return <AlertCircle size={16} className="text-text-secondary" />;
     }
   };
 
@@ -134,7 +134,7 @@ const TaskList = () => {
                             deleteTask(task.id);
                           }
                         }}
-                        className="text-[13px] text-red-500 hover:underline"
+                        className="text-[13px] text-danger hover:underline"
                       >
                         Delete
                       </button>
@@ -154,7 +154,7 @@ const TaskList = () => {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full fet-modal-panel">
             <div className="flex items-center justify-between p-6 border-b border-border-default">
               <h3 className="text-[15px] font-bold text-text-primary">
                 {editingTask ? 'Edit Task' : 'Create New Task'}

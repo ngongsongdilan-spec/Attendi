@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Smartphone, RotateCw, RefreshCw, ExternalLink, Wifi, Battery, Signal } from 'lucide-react';
 
 const STATUS_BAR_HEIGHT = 30;

@@ -1,17 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useAppContext } from '../../context/AppContext';
-import { TrendingUp, Eye, Users, Filter, Search } from 'lucide-react';
+import { TrendingUp, Eye, Users, Search } from 'lucide-react';
 
 const ContributionTracking = () => {
   const { students, tasks, milestones, groups } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterGroup, setFilterGroup] = useState('all');
 
   const studentContributions = useMemo(() => {
     const studentData = students.map(student => {
       const studentTasks = tasks.filter(t => t.assignedTo === student.matricule);
       const completedTasks = studentTasks.filter(t => t.status === 'Completed');
-      const inProgressTasks = studentTasks.filter(t => t.status === 'In Progress');
 
       const studentGroup = groups.find(g => (g.memberMatricules || []).includes(student.matricule));
       const studentMilestones = studentGroup
@@ -143,13 +141,13 @@ const ContributionTracking = () => {
                   <TrendingUp size={16} className="text-green-600" />
                   <span className="text-sm text-text-secondary">Participation</span>
                   <span className="text-sm font-semibold text-text-primary">{student.participation}%</span>
-                  <span className={`text-xs ${student.participation >= 70 ? 'text-green-600' : 'text-red-500'}`}>
+                    <span className={`text-xs ${student.participation >= 70 ? 'text-success' : 'text-danger'}`}>
                     {student.participation >= 70 ? '+3%' : '-5%'}
                   </span>
                 </div>
                 <div className="w-48 h-2 bg-page-bg rounded-full">
                   <div 
-                    className={`h-full rounded-full ${student.participation >= 70 ? 'bg-primary' : student.participation >= 50 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                      className={`h-full rounded-full ${student.participation >= 70 ? 'bg-primary' : student.participation >= 50 ? 'bg-yellow-500' : 'bg-danger'}`}
                     style={{ width: `${student.participation}%` }}
                   ></div>
                 </div>

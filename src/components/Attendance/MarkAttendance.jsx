@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 const MarkAttendance = ({ students, onSubmit, onCancel }) => {
   const [formData, setFormData] = useState({

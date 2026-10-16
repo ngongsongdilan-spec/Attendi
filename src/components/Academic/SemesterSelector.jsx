@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
-import { Calendar, Plus, Edit2, Trash2, Check, X, Save, ChevronDown } from 'lucide-react';
+import { Calendar, Plus, Edit2, Trash2, X, Save } from 'lucide-react';
 
 const SemesterSelector = () => {
   const { semesters, schoolYears, addSemester, updateSemester, deleteSemester, switchSemester } = useAppContext();
@@ -92,7 +92,7 @@ const SemesterSelector = () => {
                 ? 'bg-primary/10 border-2 border-primary' 
                 : semester.isActive
                 ? 'bg-page-bg border border-border-default'
-                : 'bg-[#F8F9FA] border border-border-default opacity-60'
+                : 'bg-[#F8F9FA] border border-border-default'
             }`}
           >
             <div>

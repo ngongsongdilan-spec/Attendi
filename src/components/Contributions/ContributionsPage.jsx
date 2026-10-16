@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Send, CheckCircle, XCircle, MessageSquare, FileText, Upload } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, CheckCircle, XCircle, MessageSquare, FileText, Upload } from 'lucide-react';
 import ContributionForm from './ContributionForm';
 import { useAppContext } from '../../context/AppContext';
 

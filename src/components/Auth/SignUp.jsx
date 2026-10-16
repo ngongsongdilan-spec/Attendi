@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Mail, Lock, Eye, EyeOff, User, UserPlus, ArrowLeft, Building, GraduationCap, BookOpen } from 'lucide-react';
 
 const SignUp = ({ onSignUp, onSwitchToLogin }) => {
@@ -210,7 +210,7 @@ const SignUp = ({ onSignUp, onSwitchToLogin }) => {
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary" size={16} />
                 <input type={showPassword ? 'text' : 'password'} name="password" value={formData.password} onChange={handleChange}
                   className={`${inputBase} pl-10 pr-11`} required />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 text-text-secondary hover:text-text-primary">
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-text-secondary hover:text-text-primary">
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
@@ -222,7 +222,7 @@ const SignUp = ({ onSignUp, onSwitchToLogin }) => {
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary" size={16} />
                 <input type={showConfirmPassword ? 'text' : 'password'} name="confirmPassword" value={formData.confirmPassword} onChange={handleChange}
                   className={`${inputBase} pl-10 pr-11`} required />
-                <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 text-text-secondary hover:text-text-primary">
+                <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-text-secondary hover:text-text-primary">
                   {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
@@ -250,7 +250,7 @@ const SignUp = ({ onSignUp, onSwitchToLogin }) => {
           <h2 className="text-[28px] font-bold text-white leading-tight mb-4">
             Join FET Platform
           </h2>
-          <p className="text-[15px] text-white/50 leading-relaxed">
+          <p className="text-[15px] text-white/70 leading-relaxed">
             Register as a student or lecturer to access the complete engineering management experience.
           </p>
         </div>

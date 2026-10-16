@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -15,13 +15,94 @@ import {
   Calendar,
   Menu,
   X,
-  Shield,
-  ChevronLeft
+  Shield
 } from 'lucide-react';
+
+const SidebarContent = ({ navItems, userName, userRole, roleColor, initials, onNavigate, onLogout, navigate }) => (
+  <div className="flex flex-col h-full">
+    {/* Logo */}
+    <div className="px-5 pt-5 pb-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: '#3F35B5' }}>
+          <span className="text-white font-bold text-base tracking-tight">FET</span>
+        </div>
+        <div>
+          <h1 className="text-[15px] font-bold text-white leading-tight">FET Platform</h1>
+          <p className="text-[11px] text-white/60 font-medium">Engineering Management</p>
+        </div>
+      </div>
+    </div>
+
+    {/* Divider */}
+    <div className="mx-4 h-px bg-white/10"></div>
+
+    {/* User Info */}
+    <div className="px-4 py-4">
+      <div className="flex items-center gap-3 px-2 py-2.5 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}>
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-white text-sm" style={{ backgroundColor: roleColor }}>
+          {initials || 'U'}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-semibold text-white truncate">{userName}</p>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: roleColor }}></span>
+            <p className="text-[11px] capitalize font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>{userRole}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* Navigation */}
+    <nav className="flex-1 px-3 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+      {navItems.map((item, index) => {
+        if (item.type === 'label') {
+          return (
+            <div key={`label-${index}`} className="nav-section-label">
+              {item.text}
+            </div>
+          );
+        }
+        return (
+          <NavLink
+            key={item.path}
+            to={item.path}
+            onClick={onNavigate}
+            className={({ isActive }) =>
+              `nav-item ${isActive ? 'active' : ''}`
+            }
+          >
+            <item.icon size={18} strokeWidth={2} />
+            <span>{item.label}</span>
+          </NavLink>
+        );
+      })}
+    </nav>
+
+    {/* Bottom Actions */}
+    <div className="px-3 pb-4 mt-auto">
+      <div className="h-px bg-white/10 mb-3 mx-1"></div>
+      <button 
+        onClick={() => { onNavigate(); navigate('/profile'); }}
+        className="nav-item w-full"
+      >
+        <Settings size={18} strokeWidth={2} />
+        <span>Settings</span>
+      </button>
+      <button 
+        onClick={() => { onLogout(); onNavigate(); }}
+        className="nav-item w-full"
+        style={{ color: '#FCA5A5' }}
+      >
+        <LogOut size={18} strokeWidth={2} />
+        <span>Logout</span>
+      </button>
+    </div>
+  </div>
+);
 
 const Sidebar = ({ onLogout, userName = 'User', userRole = 'student' }) => {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed] = useState(false);
   const navigate = useNavigate();
   const initials = userName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
@@ -86,89 +167,6 @@ const Sidebar = ({ onLogout, userName = 'User', userRole = 'student' }) => {
   const closeSidebar = () => setIsMobileOpen(false);
 
   const roleColor = userRole === 'admin' ? '#DC2626' : userRole === 'lecturer' ? '#3F35B5' : '#2563EB';
-  const roleBg = userRole === 'admin' ? 'rgba(220,38,38,0.15)' : userRole === 'lecturer' ? 'rgba(63,53,181,0.15)' : 'rgba(37,99,235,0.15)';
-
-  const SidebarContent = () => (
-    <div className="flex flex-col h-full">
-      {/* Logo */}
-      <div className="px-5 pt-5 pb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: '#3F35B5' }}>
-            <span className="text-white font-bold text-base tracking-tight">FET</span>
-          </div>
-          <div>
-            <h1 className="text-[15px] font-bold text-white leading-tight">FET Platform</h1>
-            <p className="text-[11px] text-white/35 font-medium">Engineering Management</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Divider */}
-      <div className="mx-4 h-px bg-white/8"></div>
-
-      {/* User Info */}
-      <div className="px-4 py-4">
-        <div className="flex items-center gap-3 px-2 py-2.5 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}>
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-white text-sm" style={{ backgroundColor: roleColor }}>
-            {initials || 'U'}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-semibold text-white truncate">{userName}</p>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: roleColor }}></span>
-              <p className="text-[11px] capitalize font-medium" style={{ color: 'rgba(255,255,255,0.45)' }}>{userRole}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Navigation */}
-      <nav className="flex-1 px-3 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
-        {navItems.map((item, index) => {
-          if (item.type === 'label') {
-            return (
-              <div key={`label-${index}`} className="nav-section-label">
-                {item.text}
-              </div>
-            );
-          }
-          return (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              onClick={closeSidebar}
-              className={({ isActive }) =>
-                `nav-item ${isActive ? 'active' : ''}`
-              }
-            >
-              <item.icon size={18} strokeWidth={2} />
-              <span>{item.label}</span>
-            </NavLink>
-          );
-        })}
-      </nav>
-
-      {/* Bottom Actions */}
-      <div className="px-3 pb-4 mt-auto">
-        <div className="h-px bg-white/8 mb-3 mx-1"></div>
-        <button 
-          onClick={() => { closeSidebar(); navigate('/profile'); }}
-          className="nav-item w-full"
-        >
-          <Settings size={18} strokeWidth={2} />
-          <span>Settings</span>
-        </button>
-        <button 
-          onClick={() => { onLogout(); closeSidebar(); }}
-          className="nav-item w-full"
-          style={{ color: 'rgba(252,165,165,0.7)' }}
-        >
-          <LogOut size={18} strokeWidth={2} />
-          <span>Logout</span>
-        </button>
-      </div>
-    </div>
-  );
 
   return (
     <>
@@ -197,7 +195,16 @@ const Sidebar = ({ onLogout, userName = 'User', userRole = 'student' }) => {
         h-full
         ${isCollapsed ? 'w-[72px]' : 'w-64'}
       `}>
-        <SidebarContent />
+        <SidebarContent
+          navItems={navItems}
+          userName={userName}
+          userRole={userRole}
+          roleColor={roleColor}
+          initials={initials}
+          onNavigate={closeSidebar}
+          onLogout={onLogout}
+          navigate={navigate}
+        />
       </aside>
     </>
   );

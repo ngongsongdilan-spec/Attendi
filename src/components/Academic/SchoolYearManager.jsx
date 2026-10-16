@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { Calendar, Plus, Edit2, Trash2, Check, X, Save } from 'lucide-react';
 
@@ -93,7 +93,7 @@ const SchoolYearManager = () => {
               </button>
               <button
                 onClick={() => handleDelete(year.id)}
-                className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                className="p-1 text-danger hover:bg-red-50 rounded-lg transition-colors"
               >
                 <Trash2 size={16} />
               </button>

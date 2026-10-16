@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { QrCode, RefreshCw, Clock, Users } from 'lucide-react';
 
-const StationQR = ({ session, user }) => {
+const StationQR = ({ session }) => {
   const { updateSessionToken } = useAppContext();
   const [timeLeft, setTimeLeft] = useState(10);
   const [token, setToken] = useState(session?.token || 'TOKEN-XXXX');
@@ -72,7 +72,7 @@ const StationQR = ({ session, user }) => {
         </button>
       </div>
 
-      <p className="text-xs text-white/60 mt-3 text-center">
+      <p className="text-xs text-white/80 mt-3 text-center">
         Your device is currently acting as an attendance station
       </p>
     </div>

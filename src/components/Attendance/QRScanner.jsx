@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
-import { QrCode, X, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { QrCode, X, CheckCircle, AlertCircle } from 'lucide-react';
 
 const QRScanner = ({ session, user, onClose, onScan }) => {
   const { recordAttendance } = useAppContext();
@@ -63,7 +63,7 @@ const QRScanner = ({ session, user, onClose, onScan }) => {
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="fet-card bg-white rounded-2xl shadow-modal max-w-md w-full p-6">
+       <div className="fet-card bg-white rounded-2xl shadow-modal max-w-md w-full p-6 fet-modal-panel">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xl font-bold text-text-primary">Scan QR Code</h3>
           <button onClick={onClose} className="p-1 hover:bg-page-bg rounded-lg">

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Search, UserX, UserCheck, UserPlus, X, Users } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 
@@ -19,15 +19,14 @@ const AdminUsers = ({ user }) => {
     courses: '',
   });
 
-  const adminUser = {
-    id: user?.id || 'admin-1',
-    fullName: user?.fullName || 'System Administrator',
-    email: 'admin@fet.local',
-    role: 'admin',
-    active: true,
-  };
-
   const users = useMemo(() => {
+    const adminUser = {
+      id: user?.id || 'admin-1',
+      fullName: user?.fullName || 'System Administrator',
+      email: 'admin@fet.local',
+      role: 'admin',
+      active: true,
+    };
     const studentUsers = students.map(s => ({
       id: s.matricule,
       fullName: s.fullName,
@@ -46,7 +45,7 @@ const AdminUsers = ({ user }) => {
       department: l.department,
     }));
     return [...studentUsers, ...lecturerUsers, adminUser];
-  }, [students, lecturers, adminUser]);
+  }, [students, lecturers, user]);
 
   const showMessage = (msg) => {
     setSuccess(msg);

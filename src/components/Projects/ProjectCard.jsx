@@ -1,4 +1,3 @@
-import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Calendar, ArrowRight } from 'lucide-react';
 
@@ -7,16 +6,16 @@ const ProjectCard = ({ project }) => {
 
   return (
     <div className="fet-card p-6 hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <h3 className="text-[15px] font-semibold text-text-primary">{project.title}</h3>
-          <div className="flex items-center gap-3 text-[13px] text-text-secondary mt-1">
-            <span className="flex items-center gap-1">
+      <div className="flex items-start justify-between mb-3 gap-3">
+        <div className="min-w-0">
+          <h3 className="text-[15px] font-semibold text-text-primary truncate">{project.title}</h3>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-text-secondary mt-1">
+            <span className="flex items-center gap-1 truncate">
               <Users size={14} />
               {project.group || 'No group'}
             </span>
-            <span>•</span>
-            <span>{project.supervisor || 'No supervisor'}</span>
+            <span className="hidden sm:inline">•</span>
+            <span className="truncate">{project.supervisor || 'No supervisor'}</span>
           </div>
         </div>
         <span className={`fet-badge ${
@@ -47,10 +46,10 @@ const ProjectCard = ({ project }) => {
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[13px] text-text-secondary">
-          <Calendar size={14} />
-          <span>Deadline: {project.deadline || 'Not set'}</span>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-[13px] text-text-secondary min-w-0">
+          <Calendar size={14} className="flex-shrink-0" />
+          <span className="truncate">Deadline: {project.deadline || 'Not set'}</span>
         </div>
         <button 
           onClick={() => navigate(`/projects/${project.id}`)}
