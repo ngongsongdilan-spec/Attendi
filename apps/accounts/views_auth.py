@@ -35,6 +35,7 @@ from .serializers import (
     RegisterSerializer,
     RequestOtpSerializer,
     SelfRegisterSerializer,
+    VerifyOtpSerializer,
 )
 from .throttling import PasswordResetThrottle
 
@@ -294,6 +295,55 @@ def _invalid_otp():
     }
 
 
+def _too_many_attempts():
+    return {
+        "success": False,
+        "error": {
+            "code": "TOO_MANY_ATTEMPTS",
+            "message": "Too many failed attempts. Request a new OTP.",
+        },
+    }
+
+
+def _burn_otp(user):
+    """Clear the OTP fields so a spent/exhausted code can never be reused."""
+    user.reset_otp_hash = None
+    user.reset_otp_expires = None
+    user.reset_otp_attempts = 0
+    user.save(
+        update_fields=[
+            "reset_otp_hash",
+            "reset_otp_expires",
+            "reset_otp_attempts",
+            "updated_at",
+        ]
+    )
+
+
+def _otp_precheck(user):
+    """Return a Response if the stored OTP is missing/expired/exhausted, else None."""
+    if (
+        user is None
+        or not user.reset_otp_hash
+        or user.reset_otp_expires is None
+        or user.reset_otp_expires <= timezone.now()
+    ):
+        return Response(_invalid_otp(), status=status.HTTP_400_BAD_REQUEST)
+    if user.reset_otp_attempts >= settings.PASSWORD_RESET_OTP_MAX_ATTEMPTS:
+        _burn_otp(user)
+        return Response(_too_many_attempts(), status=status.HTTP_429_TOO_MANY_REQUESTS)
+    return None
+
+
+def _otp_matches(user, otp):
+    return secrets.compare_digest(_hash_otp(otp), user.reset_otp_hash or "")
+
+
+def _record_failed_attempt(user):
+    user.reset_otp_attempts += 1
+    user.save(update_fields=["reset_otp_attempts", "updated_at"])
+
+
 def _revoke_all_refresh_tokens(user):
     """Blacklist every outstanding refresh token so all sessions are killed.
 
@@ -355,6 +405,38 @@ class RequestOtpView(APIView):
         return Response({"message": self.GENERIC_MESSAGE}, status=status.HTTP_200_OK)
 
 
+class VerifyOtpView(APIView):
+    """POST /api/v1/auth/reset-password/verify-otp/
+
+    { "email": "...", "otp": "123456" }
+
+    Confirms the code is correct without consuming it, so the SPA can advance to
+    the "choose a new password" step. Wrong guesses still count toward the
+    brute-force budget so this cannot be used to probe codes.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [AnonRateThrottle]
+    throttle_scope = "login"
+
+    def post(self, request):
+        serializer = VerifyOtpSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        otp = serializer.validated_data["otp"]
+
+        user = User.objects.filter(email__iexact=email).first()
+        failure = _otp_precheck(user)
+        if failure is not None:
+            return failure
+        if not _otp_matches(user, otp):
+            _record_failed_attempt(user)
+            return Response(_invalid_otp(), status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"message": "OTP verified."}, status=status.HTTP_200_OK)
+
+
 class ConfirmResetView(APIView):
     """POST /api/v1/auth/reset-password/confirm/
 
@@ -377,40 +459,11 @@ class ConfirmResetView(APIView):
         new_password = serializer.validated_data["new_password"]
 
         user = User.objects.filter(email__iexact=email).first()
-        if (
-            user is None
-            or not user.reset_otp_hash
-            or user.reset_otp_expires is None
-            or user.reset_otp_expires <= timezone.now()
-        ):
-            return Response(_invalid_otp(), status=status.HTTP_400_BAD_REQUEST)
-
-        if user.reset_otp_attempts >= settings.PASSWORD_RESET_OTP_MAX_ATTEMPTS:
-            user.reset_otp_hash = None
-            user.reset_otp_expires = None
-            user.reset_otp_attempts = 0
-            user.save(
-                update_fields=[
-                    "reset_otp_hash",
-                    "reset_otp_expires",
-                    "reset_otp_attempts",
-                    "updated_at",
-                ]
-            )
-            return Response(
-                {
-                    "success": False,
-                    "error": {
-                        "code": "TOO_MANY_ATTEMPTS",
-                        "message": "Too many failed attempts. Request a new OTP.",
-                    },
-                },
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-
-        if not secrets.compare_digest(_hash_otp(otp), user.reset_otp_hash):
-            user.reset_otp_attempts += 1
-            user.save(update_fields=["reset_otp_attempts", "updated_at"])
+        failure = _otp_precheck(user)
+        if failure is not None:
+            return failure
+        if not _otp_matches(user, otp):
+            _record_failed_attempt(user)
             return Response(_invalid_otp(), status=status.HTTP_400_BAD_REQUEST)
 
         user.set_password(new_password)

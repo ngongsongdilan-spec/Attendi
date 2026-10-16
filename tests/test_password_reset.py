@@ -56,6 +56,14 @@ def _confirm(client, email="reset@test.edu", otp="000000", new_password="BrandNe
     )
 
 
+def _verify(client, email="reset@test.edu", otp="000000"):
+    return client.post(
+        reverse("auth-verify-otp"),
+        {"email": email, "otp": otp},
+        format="json",
+    )
+
+
 def _capture_otp(monkeypatch):
     """Patch the email sender so we can read the raw code that would go out."""
     captured = {}
@@ -120,6 +128,52 @@ def test_request_otp_is_generic_and_sends_nothing_for_unknown_email(client, monk
 def test_request_otp_requires_a_valid_email(client):
     resp = client.post(reverse("auth-request-otp"), {"email": "not-an-email"}, format="json")
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Verify OTP (step before the password form)
+# ---------------------------------------------------------------------------
+
+def test_verify_accepts_correct_otp_without_consuming_it(client, user):
+    _seed_otp(user, otp="123456")
+
+    resp = _verify(client, otp="123456")
+
+    assert resp.status_code == 200
+    user.refresh_from_db()
+    # The code must still be usable for the actual reset.
+    assert user.reset_otp_hash is not None
+    assert _confirm(client, otp="123456").status_code == 200
+
+
+def test_verify_rejects_wrong_otp_and_counts_the_attempt(client, user):
+    _seed_otp(user, otp="123456")
+
+    resp = _verify(client, otp="654321")
+
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "INVALID_OTP"
+    user.refresh_from_db()
+    assert user.reset_otp_attempts == 1
+
+
+def test_verify_rejects_expired_otp(client, user):
+    _seed_otp(user, otp="123456", expires_in=timedelta(minutes=-1))
+    assert _verify(client, otp="123456").status_code == 400
+
+
+def test_verify_rejects_unknown_email(client):
+    resp = _verify(client, email="ghost@test.edu", otp="123456")
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "INVALID_OTP"
+
+
+def test_verify_burns_otp_after_too_many_attempts(client, user):
+    _seed_otp(user, otp="123456", attempts=MAX_ATTEMPTS)
+    resp = _verify(client, otp="123456")
+    assert resp.status_code == 429
+    user.refresh_from_db()
+    assert user.reset_otp_hash is None
 
 
 # ---------------------------------------------------------------------------

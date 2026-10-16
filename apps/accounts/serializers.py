@@ -295,6 +295,22 @@ class RequestOtpSerializer(serializers.Serializer):
         return value.strip().lower()
 
 
+class VerifyOtpSerializer(serializers.Serializer):
+    """Validates the account email + the 6-digit OTP (no password yet)."""
+
+    email = serializers.EmailField()
+    otp = serializers.CharField(min_length=6, max_length=6)
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+    def validate_otp(self, value):
+        value = value.strip()
+        if not value.isdigit():
+            raise serializers.ValidationError("OTP must be a 6-digit code.")
+        return value
+
+
 class ConfirmResetSerializer(serializers.Serializer):
     """Validates the emailed 6-digit OTP + the new password.
 
