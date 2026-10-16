@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { Plus, X, Trash2, Bell, Calendar, AlertCircle } from 'lucide-react';
 import AnnouncementForm from './AnnouncementForm';
@@ -65,7 +65,7 @@ const AnnouncementList = () => {
                   }}
                   className="p-2 hover:bg-red-50 rounded-lg transition-colors"
                 >
-                  <Trash2 size={18} className="text-red-500" />
+                  <Trash2 size={18} className="text-danger" />
                 </button>
               </div>
             </div>

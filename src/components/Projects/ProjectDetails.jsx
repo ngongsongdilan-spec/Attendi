@@ -1,12 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppContext } from '../../context/AppContext';
-import { ArrowLeft, Wifi, Droplets, Users, Calendar, CheckSquare, Target, Plus, X } from 'lucide-react';
+import { ArrowLeft, Wifi, Droplets, Users, CheckSquare, Target, Plus, X } from 'lucide-react';
 
 const ProjectDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { projects, tasks, milestones, groups, updateProject, addMilestone, updateMilestone, deleteMilestone } = useAppContext();
+  const { projects, tasks, milestones, groups, addMilestone, updateMilestone, deleteMilestone } = useAppContext();
   const [activeTab, setActiveTab] = useState('overview');
   const [showMilestoneForm, setShowMilestoneForm] = useState(false);
   const [editingMilestone, setEditingMilestone] = useState(null);
@@ -59,8 +59,8 @@ const ProjectDetails = () => {
       </button>
 
       <div className="fet-card p-6">
-        <div className="flex items-start justify-between mb-6">
-          <div>
+        <div className="flex items-start justify-between mb-6 gap-4">
+          <div className="min-w-0">
             <span className={`fet-badge mb-2 ${
               project.status === 'Active' || project.status === 'On Track'
                 ? 'fet-badge-active'
@@ -159,9 +159,9 @@ const ProjectDetails = () => {
             {projectTasks.length > 0 ? (
               <div className="space-y-2">
                 {projectTasks.map(task => (
-                  <div key={task.id} className="flex items-center justify-between p-3 bg-page-bg rounded-lg">
-                    <div>
-                      <p className="font-medium text-text-primary">{task.title}</p>
+                  <div key={task.id} className="flex items-center justify-between p-3 bg-page-bg rounded-lg gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-text-primary truncate">{task.title}</p>
                       <p className="text-[13px] text-text-secondary">Due: {task.dueDate}</p>
                     </div>
                     <span className={`fet-badge ${
@@ -197,11 +197,11 @@ const ProjectDetails = () => {
               <div className="space-y-3">
                 {projectMilestones.map(milestone => (
                   <div key={milestone.id} className="p-4 bg-page-bg rounded-lg">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-medium text-text-primary">{milestone.title}</p>
-                        <p className="text-[13px] text-text-secondary">Due: {milestone.dueDate}</p>
-                      </div>
+                     <div className="flex items-start justify-between gap-4">
+                       <div className="min-w-0">
+                         <p className="font-medium text-text-primary truncate">{milestone.title}</p>
+                         <p className="text-[13px] text-text-secondary">Due: {milestone.dueDate}</p>
+                       </div>
                       <div className="flex items-center gap-4">
                         <div className="text-right">
                           <p className="text-[13px] font-semibold text-text-primary">{milestone.progress}%</p>
@@ -221,7 +221,7 @@ const ProjectDetails = () => {
                               deleteMilestone(milestone.id);
                             }
                           }}
-                          className="text-[13px] text-red-500 hover:underline"
+                          className="text-[13px] text-danger hover:underline"
                         >
                           Delete
                         </button>
@@ -265,7 +265,7 @@ const ProjectDetails = () => {
       {/* Milestone Form Modal */}
       {showMilestoneForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full fet-modal-panel">
             <div className="flex items-center justify-between p-6 border-b border-border-default">
               <h3 className="text-[15px] font-bold text-text-primary">
                 {editingMilestone ? 'Edit Milestone' : 'Add Milestone'}

@@ -1,5 +1,3 @@
-import React from 'react';
-
 const AttendanceTable = ({ records }) => {
   if (!records || records.length === 0) {
     return (

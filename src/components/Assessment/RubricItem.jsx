@@ -1,5 +1,3 @@
-import React from 'react';
-
 const RubricItem = ({ label, weight, maxMarks, score, icon: Icon }) => {
   const percentage = maxMarks > 0 ? ((score / maxMarks) * 100).toFixed(0) : 0;
 

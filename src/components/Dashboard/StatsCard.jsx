@@ -1,14 +1,12 @@
-import React from 'react';
-
 const StatsCard = ({ icon: Icon, label, value, color = 'secondary' }) => {
   const colorMap = {
     secondary: { bg: 'rgba(63,53,181,0.08)', icon: '#3F35B5' },
     primary: { bg: 'rgba(63,53,181,0.08)', icon: '#3F35B5' },
-    tertiary: { bg: 'rgba(139,92,246,0.08)', icon: '#8B5CF6' },
-    success: { bg: 'rgba(22,163,74,0.08)', icon: '#16A34A' },
-    warning: { bg: 'rgba(245,158,11,0.08)', icon: '#F59E0B' },
-    error: { bg: 'rgba(220,38,38,0.08)', icon: '#DC2626' },
-    info: { bg: 'rgba(37,99,235,0.08)', icon: '#2563EB' },
+    tertiary: { bg: 'rgba(124,58,237,0.08)', icon: '#7C3AED' },
+    success: { bg: 'rgba(21,128,61,0.08)', icon: '#15803D' },
+    warning: { bg: 'rgba(180,83,9,0.08)', icon: '#B45309' },
+    error: { bg: 'rgba(185,28,28,0.08)', icon: '#B91C1C' },
+    info: { bg: 'rgba(29,78,216,0.08)', icon: '#1D4ED8' },
   };
 
   const colors = colorMap[color] || colorMap.secondary;
@@ -21,7 +19,7 @@ const StatsCard = ({ icon: Icon, label, value, color = 'secondary' }) => {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-[20px] md:text-[24px] font-bold text-text-primary leading-tight">{value}</p>
-          <p className="text-[12px] text-text-secondary font-medium truncate mt-0.5">{label}</p>
+          <p className="text-[12px] text-text-secondary font-medium leading-snug mt-0.5">{label}</p>
         </div>
       </div>
     </div>

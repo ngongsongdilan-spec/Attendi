@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Bell, ChevronDown, User, School, LogOut, Settings, CheckCheck, X } from 'lucide-react';
+import { Search, Bell, ChevronDown, User, School, LogOut, Settings, CheckCheck } from 'lucide-react';
 
 const loadNotifications = () => {
   try {

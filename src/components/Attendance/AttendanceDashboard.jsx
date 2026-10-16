@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAppContext } from '../../context/AppContext';
-import { Calendar, Users, CheckCircle, Clock, AlertCircle, QrCode, Plus, Eye, X, Monitor, Square, Pencil } from 'lucide-react';
+import { Calendar, Clock, QrCode, Plus, X, Monitor, Square, Pencil } from 'lucide-react';
 import AttendanceSession from './AttendanceSession';
 import QRScanner from './QRScanner';
 import StationQR from './StationQR';
-import AttendanceTable from './AttendanceTable';
 
 const loadCorrections = () => {
   try {
@@ -130,8 +129,8 @@ const AttendanceDashboard = ({ user }) => {
         {/* Header */}
         <div className="fet-welcome-banner">
           <h2 className="text-2xl font-bold">Attendance</h2>
-          <p className="text-[#8683BA] mt-1">Mark your attendance</p>
-          <p className="text-[#8683BA] text-xs mt-1">Scan QR code displayed by your lecturer</p>
+           <p className="text-white/80 mt-1">Mark your attendance</p>
+           <p className="text-white/70 text-xs mt-1">Scan QR code displayed by your lecturer</p>
         </div>
 
         {/* Station QR Display - students who are temporary stations */}
@@ -247,8 +246,8 @@ const AttendanceDashboard = ({ user }) => {
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-2xl font-bold">Attendance Management</h2>
-            <p className="text-[#8683BA] mt-1">Manage attendance for your courses</p>
-            <p className="text-[#8683BA] text-xs mt-1">Generate QR codes for students to scan</p>
+             <p className="text-white/80 mt-1">Manage attendance for your courses</p>
+             <p className="text-white/70 text-xs mt-1">Generate QR codes for students to scan</p>
           </div>
           <button
             onClick={() => setShowCreateSession(true)}
@@ -339,7 +338,7 @@ const AttendanceDashboard = ({ user }) => {
                       </button>
                       <button
                         onClick={() => handleCloseSession(session)}
-                        className="px-3 py-1 bg-danger text-white rounded-lg text-xs font-medium hover:bg-red-700 flex items-center gap-1"
+                         className="px-3 py-1 bg-danger text-white rounded-lg text-xs font-medium hover:bg-danger/90 flex items-center gap-1"
                       >
                         <Square size={14} /> Close
                       </button>
@@ -419,6 +418,7 @@ const AttendanceDashboard = ({ user }) => {
             <p className="text-sm text-text-secondary">Correction history is preserved rather than silently overwritten.</p>
           </div>
           {corrections.length > 0 ? (
+            <div className="overflow-x-auto">
             <table className="fet-table">
               <thead>
                 <tr>
@@ -443,6 +443,7 @@ const AttendanceDashboard = ({ user }) => {
                 ))}
               </tbody>
             </table>
+            </div>
           ) : (
             <div className="text-center py-8 text-text-secondary">No corrections recorded</div>
           )}
@@ -461,7 +462,7 @@ const AttendanceDashboard = ({ user }) => {
       {/* QR Display Modal - ONLY FOR LECTURERS */}
       {showQRDisplay && selectedSession && !projectorMode && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="fet-card bg-white rounded-2xl shadow-modal max-w-md w-full p-8">
+           <div className="fet-card bg-white rounded-2xl shadow-modal max-w-md w-full p-8 fet-modal-panel">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold text-text-primary">Attendance QR Code</h3>
               <button 
@@ -525,7 +526,7 @@ const AttendanceDashboard = ({ user }) => {
 
       {/* Projector / Fullscreen Mode */}
       {projectorMode && selectedSession && (
-        <div className="fixed inset-0 bg-[#0a0a1a] z-[100] flex flex-col items-center justify-center p-8">
+        <div className="fixed inset-0 bg-[#0a0a1a] z-[100] flex flex-col items-center justify-center p-8 overflow-y-auto">
           <button
             onClick={() => setProjectorMode(false)}
             className="absolute top-4 right-4 flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-xl hover:bg-white/20"
@@ -550,14 +551,14 @@ const AttendanceDashboard = ({ user }) => {
       {/* View Session Modal */}
       {selectedSession && !showQRDisplay && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="fet-card bg-white rounded-2xl shadow-modal max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6">
+           <div className="fet-card bg-white rounded-2xl shadow-modal max-w-4xl w-full fet-modal-panel p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold text-text-primary">Session Details</h3>
               <div className="flex items-center gap-2">
                 {selectedSession.status === 'ACTIVE' && (
                   <button
                     onClick={() => handleCloseSession(selectedSession)}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-danger text-white rounded-lg text-xs font-medium hover:bg-red-700"
+                     className="flex items-center gap-1 px-3 py-1.5 bg-danger text-white rounded-lg text-xs font-medium hover:bg-danger/90"
                   >
                     <Square size={14} /> Close Session
                   </button>

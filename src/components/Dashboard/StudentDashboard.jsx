@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { mockGroups, mockProjects } from '../../data/MockData';
 import { 
-  BookOpen, Clock, CheckCircle, Calendar, 
-  Users, FileText, Bell, 
+  BookOpen, Clock, CheckCircle, Bell, 
   FolderKanban,
   ListTodo, AlertCircle
 } from 'lucide-react';
@@ -33,7 +32,6 @@ const StudentDashboard = ({ user }) => {
   });
   const [recentAnnouncements, setRecentAnnouncements] = useState([]);
   const [upcomingDeadlines, setUpcomingDeadlines] = useState([]);
-  const [studentCourses, setStudentCourses] = useState([]);
   const [studentTasks, setStudentTasks] = useState([]);
   const [studentProjects, setStudentProjects] = useState([]);
 
@@ -42,7 +40,6 @@ const StudentDashboard = ({ user }) => {
 
   useEffect(() => {
     const courses = getCoursesForStudent(studentMatricule);
-    setStudentCourses(courses);
     
     const totalCourses = courses.length;
     const totalCredits = courses.reduce((acc, c) => acc + (c.credits || 3), 0);
@@ -76,7 +73,7 @@ const StudentDashboard = ({ user }) => {
       .slice(0, 5);
     setUpcomingDeadlines(deadlines);
 
-  }, [studentMatricule, currentSemester, currentSchoolYear, user, allTasks, allAnnouncements, allProjects, allGroups]);
+  }, [studentMatricule, currentSemester, currentSchoolYear, user, allTasks, allAnnouncements, allProjects, allGroups, getCoursesForStudent, getCurrentSemesterStats]);
 
   const statCards = [
     { icon: FolderKanban, label: 'Active Projects', value: stats.activeProjects, color: 'secondary' },
@@ -129,13 +126,13 @@ const StudentDashboard = ({ user }) => {
         <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <h2 className="text-[20px] md:text-[22px] font-bold">Welcome back, {studentName}</h2>
-            <p className="text-white/50 text-[13px] mt-1">Here's what's happening with your projects today.</p>
-            <p className="text-white/35 text-[12px] mt-0.5">
+            <p className="text-white/80 text-[13px] mt-1">Here&apos;s what&apos;s happening with your projects today.</p>
+            <p className="text-white/70 text-[12px] mt-0.5">
               {currentSemester?.name} {currentSchoolYear?.name}
             </p>
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-xl px-5 py-3 text-center min-w-[100px] border border-white/10">
-            <p className="text-[11px] text-white/50 font-medium uppercase tracking-wider">Attendance</p>
+            <p className="text-[11px] text-white/80 font-medium uppercase tracking-wider">Attendance</p>
             <p className="text-[26px] font-bold text-white leading-tight">{stats.attendance}%</p>
           </div>
         </div>
@@ -190,7 +187,7 @@ const StudentDashboard = ({ user }) => {
                 })
               ) : (
                 <div className="text-center py-8">
-                  <FolderKanban size={32} className="mx-auto text-text-secondary/30" />
+                  <FolderKanban size={32} className="mx-auto text-text-secondary" />
                   <p className="text-[13px] text-text-secondary mt-2">No projects assigned</p>
                 </div>
               )}
@@ -228,7 +225,7 @@ const StudentDashboard = ({ user }) => {
                 })
               ) : (
                 <div className="text-center py-8">
-                  <ListTodo size={32} className="mx-auto text-text-secondary/30" />
+                   <ListTodo size={32} className="mx-auto text-text-secondary" />
                   <p className="text-[13px] text-text-secondary mt-2">No tasks assigned</p>
                 </div>
               )}

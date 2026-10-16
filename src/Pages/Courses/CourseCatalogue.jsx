@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Search, CheckCircle, Plus } from 'lucide-react';
 import { mockCourses } from '../../data/MockData';
 
@@ -140,7 +140,7 @@ const CourseCatalogue = ({ user }) => {
       </div>
 
       {isStudent && (
-        <div className="flex gap-2 border-b border-border-default">
+        <div className="flex gap-2 border-b border-border-default overflow-x-auto whitespace-nowrap">
           <button
             onClick={() => setActiveTab('all')}
             className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
@@ -170,7 +170,7 @@ const CourseCatalogue = ({ user }) => {
         </div>
       )}
 
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary" size={18} />
           <input
@@ -186,7 +186,7 @@ const CourseCatalogue = ({ user }) => {
           <select
             value={filterDepartment}
             onChange={(e) => setFilterDepartment(e.target.value)}
-            className="px-4 py-2 fet-select"
+            className="px-4 py-2 fet-select w-full sm:w-auto shrink-0"
           >
             <option value="all">All Departments</option>
             {departments.map(dept => (
@@ -199,7 +199,7 @@ const CourseCatalogue = ({ user }) => {
           <select
             value={filterLevel}
             onChange={(e) => setFilterLevel(e.target.value)}
-            className="px-4 py-2 fet-select"
+            className="px-4 py-2 fet-select w-full sm:w-auto shrink-0"
           >
             <option value="all">All Levels</option>
             {levels.map(level => (
@@ -240,13 +240,13 @@ const CourseCatalogue = ({ user }) => {
                     {isStudent && (
                       <td className="py-3 px-4 text-right">
                         {isEnrolled ? (
-                          <div className="flex items-center justify-end gap-3">
+                           <div className="flex flex-wrap items-center justify-end gap-2">
                             <span className="fet-badge fet-badge-active inline-flex items-center gap-1">
                               <CheckCircle size={12} /> Enrolled
                             </span>
                             <button
                               onClick={() => toggleEnroll(course.code)}
-                              className="text-xs text-red-500 hover:underline font-medium"
+                              className="text-xs text-danger hover:underline font-medium"
                             >
                               Drop
                             </button>

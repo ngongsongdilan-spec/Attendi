@@ -13,8 +13,8 @@
 
   body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    background-color: #F6F7FB;
-    color: #111827;
+    background-color: #F8FAFC;
+    color: #0F172A;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     font-size: 14px;
@@ -22,32 +22,48 @@
   }
 
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
 
   ::-webkit-scrollbar-track {
-    background: #F6F7FB;
+    background: #F1F5F9;
     border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #C5C7CF;
+    background: #94A3B8;
     border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #9CA0AC;
+    background: #64748B;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    color: #111827;
+    color: #0F172A;
     font-weight: 600;
   }
 
   input:focus,
   textarea:focus,
   select:focus {
+    outline: none;
+  }
+
+  /* Accessible, visible keyboard focus for all interactive elements */
+  a:focus-visible,
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid #3F35B5;
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  /* Keep focus rings off element-level focus shadow when using mouse */
+  .fet-input:focus-visible,
+  .fet-select:focus-visible {
     outline: none;
   }
 }
@@ -77,12 +93,20 @@
 
 #root {
   min-height: 100vh;
-  background-color: #F6F7FB;
+  background-color: #F8FAFC;
 }
 
 .app-container {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   background: transparent;
+}
+
+/* Allow flex children to scroll instead of overflowing/clipping */
+.app-scroll {
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
 }
 
 /* ============================================================
@@ -102,14 +126,14 @@
   border-radius: 10px;
   font-size: 13.5px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.75);
   transition: all 0.15s ease;
   text-decoration: none;
 }
 
 .sidebar .nav-item:hover {
-  background-color: rgba(63, 53, 181, 0.2);
-  color: rgba(255, 255, 255, 0.9);
+  background-color: rgba(63, 53, 181, 0.35);
+  color: #FFFFFF;
 }
 
 .sidebar .nav-item.active {
@@ -128,7 +152,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1.2px;
-  color: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.6);
   padding: 16px 16px 6px;
 }
 
@@ -138,7 +162,7 @@
 
 .fet-card {
   background-color: #FFFFFF;
-  border: 1px solid #E5E7EB;
+  border: 1px solid #E2E8F0;
   border-radius: 14px;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
   transition: box-shadow 0.15s ease;
@@ -175,13 +199,13 @@
 
 .fet-btn-secondary {
   background-color: #FFFFFF;
-  color: #374151;
+  color: #334155;
   padding: 10px 20px;
   border-radius: 10px;
   font-weight: 600;
   font-size: 13.5px;
   transition: all 0.15s ease;
-  border: 1px solid #E5E7EB;
+  border: 1px solid #CBD5E1;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -190,12 +214,12 @@
 }
 
 .fet-btn-secondary:hover {
-  background-color: #F6F7FB;
-  border-color: #D1D5DB;
+  background-color: #F1F5F9;
+  border-color: #94A3B8;
 }
 
 .fet-btn-danger {
-  background-color: #DC2626;
+  background-color: #B91C1C;
   color: #FFFFFF;
   padding: 10px 20px;
   border-radius: 10px;
@@ -211,11 +235,11 @@
 }
 
 .fet-btn-danger:hover {
-  background-color: #B91C1C;
+  background-color: #991B1B;
 }
 
 .fet-btn-success {
-  background-color: #16A34A;
+  background-color: #15803D;
   color: #FFFFFF;
   padding: 10px 20px;
   border-radius: 10px;
@@ -231,56 +255,64 @@
 }
 
 .fet-btn-success:hover {
-  background-color: #15803D;
+  background-color: #166534;
 }
 
 /* ============================================================
    FORM INPUTS
+
+   These live in the `components` layer so that Tailwind utility
+   classes (e.g. `pl-10` for leading icons, `pr-11` for trailing
+   buttons) always win over the base padding below. Without this,
+   the unlayered `.fet-input` padding shorthand overrode the
+   utilities and leading icons overlapped the text.
    ============================================================ */
 
-.fet-input {
-  width: 100%;
-  padding: 10px 14px;
-  border: 1px solid #E5E7EB;
-  border-radius: 10px;
-  font-size: 13.5px;
-  color: #111827;
-  background-color: #FFFFFF;
-  transition: all 0.15s ease;
-}
+@layer components {
+  .fet-input {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #CBD5E1;
+    border-radius: 10px;
+    font-size: 13.5px;
+    color: #0F172A;
+    background-color: #FFFFFF;
+    transition: all 0.15s ease;
+  }
 
-.fet-input:focus {
-  border-color: #3F35B5;
-  box-shadow: 0 0 0 3px rgba(63, 53, 181, 0.1);
-}
+  .fet-input:focus {
+    border-color: #3F35B5;
+    box-shadow: 0 0 0 3px rgba(63, 53, 181, 0.1);
+  }
 
-.fet-input::placeholder {
-  color: #9CA3AF;
-}
+  .fet-input::placeholder {
+    color: #64748B;
+  }
 
-.fet-label {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  color: #374151;
-  margin-bottom: 6px;
-}
+  .fet-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 6px;
+  }
 
-.fet-select {
-  width: 100%;
-  padding: 10px 14px;
-  border: 1px solid #E5E7EB;
-  border-radius: 10px;
-  font-size: 13.5px;
-  color: #111827;
-  background-color: #FFFFFF;
-  transition: all 0.15s ease;
-  appearance: auto;
-}
+  .fet-select {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #CBD5E1;
+    border-radius: 10px;
+    font-size: 13.5px;
+    color: #0F172A;
+    background-color: #FFFFFF;
+    transition: all 0.15s ease;
+    appearance: auto;
+  }
 
-.fet-select:focus {
-  border-color: #3F35B5;
-  box-shadow: 0 0 0 3px rgba(63, 53, 181, 0.1);
+  .fet-select:focus {
+    border-color: #3F35B5;
+    box-shadow: 0 0 0 3px rgba(63, 53, 181, 0.1);
+  }
 }
 
 /* ============================================================
@@ -313,8 +345,8 @@
 }
 
 .fet-badge-inactive {
-  background-color: #F3F4F6;
-  color: #6B7280;
+  background-color: #E2E8F0;
+  color: #334155;
 }
 
 .fet-badge-present {
@@ -343,8 +375,8 @@
 }
 
 .fet-badge-draft {
-  background-color: #F3F4F6;
-  color: #6B7280;
+  background-color: #E2E8F0;
+  color: #334155;
 }
 
 .fet-badge-submitted {
@@ -384,16 +416,16 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #6B7280;
-  background-color: #F9FAFB;
-  border-bottom: 1px solid #E5E7EB;
+  color: #475569;
+  background-color: #F8FAFC;
+  border-bottom: 1px solid #E2E8F0;
 }
 
 .fet-table tbody td {
   padding: 10px 14px;
   font-size: 13.5px;
-  color: #111827;
-  border-bottom: 1px solid #F3F4F6;
+  color: #0F172A;
+  border-bottom: 1px solid #F1F5F9;
 }
 
 .fet-table tbody tr:last-child td {
@@ -415,6 +447,17 @@
   color: #FFFFFF;
   position: relative;
   overflow: hidden;
+}
+
+/* Keep banner headings white; the global h1-h6 rule would otherwise
+   render them dark against the dark blue gradient. */
+.fet-welcome-banner h1,
+.fet-welcome-banner h2,
+.fet-welcome-banner h3,
+.fet-welcome-banner h4,
+.fet-welcome-banner h5,
+.fet-welcome-banner h6 {
+  color: #FFFFFF;
 }
 
 .fet-welcome-banner::before {
@@ -446,7 +489,7 @@
 .fet-progress-bar {
   width: 100%;
   height: 6px;
-  background-color: #F3F4F6;
+  background-color: #E2E8F0;
   border-radius: 9999px;
   overflow: hidden;
 }
@@ -456,6 +499,17 @@
   background: linear-gradient(90deg, #3F35B5, #6769FA);
   border-radius: 9999px;
   transition: width 0.3s ease;
+}
+
+/* ============================================================
+   MODALS
+   ============================================================ */
+
+/* Scrollable modal panel that never exceeds the viewport height */
+.fet-modal-panel {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* ============================================================
