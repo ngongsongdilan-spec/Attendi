@@ -3,6 +3,7 @@
 Start session -> select checkpoints -> generate tokens -> rotate -> students scan.
 """
 from django.conf import settings
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -91,6 +92,7 @@ class FlexibleStartAttendanceView(APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "attendance_start"
 
+    @transaction.atomic
     def post(self, request):
         offering_id = request.data.get("offering_id")
         if not offering_id:
@@ -98,7 +100,7 @@ class FlexibleStartAttendanceView(APIView):
                 {"success": False, "error": {"code": "VALIDATION_ERROR", "message": "offering_id is required."}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        offering = get_object_or_404(CourseOffering, id=offering_id)
+        offering = get_object_or_404(CourseOffering.objects.select_for_update(), id=offering_id)
         if offering.lecturer_id != request.user.id and request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "You are not the assigned lecturer for this course."}},
@@ -311,7 +313,7 @@ class ManualAttendanceView(APIView):
             defaults={"verification_method": AttendanceRecord.VerificationMethod.MANUAL, "status": new_status},
         )
         if created:
-            award_manual_points(session, student_id=student_id)
+            award_manual_points(session, student=student_id)
         return Response(AttendanceRecordSerializer(record).data, status=status.HTTP_201_CREATED if created else 200)
 
 

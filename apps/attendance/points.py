@@ -140,6 +140,7 @@ def attendance_rate_for_students(offering, student_ids):
     return {sid: counts.get(sid, 0) / total_sessions for sid in student_ids}
 
 
+@transaction.atomic
 def auto_select_stations(attendance_session: AttendanceSession, count: int = 3):
     """Pick stations ONLY from students verified present in THIS session (FR-047).
 
@@ -153,7 +154,11 @@ def auto_select_stations(attendance_session: AttendanceSession, count: int = 3):
     their station serves the first SCANS_PER_STATION (3) classmates, who
     each earn bonus points - so they share the QR wisely, not just with
     their closest friends.
+
+    The session row is locked so two concurrent selections cannot both read
+    the same checkpoint count and together exceed MAX_AUTO_STATIONS.
     """
+    attendance_session = AttendanceSession.objects.select_for_update().get(id=attendance_session.id)
     existing_auto = attendance_session.checkpoints.filter(
         selection_method=AttendanceCheckpoint.SelectionMethod.AUTO
     ).count()
@@ -211,7 +216,11 @@ def award_station_points(attendance_session: AttendanceSession, checkpoint: Atte
     AUTO-selected -> full points; TEACHER-selected -> half points.
     Projector "stations" (lecturer-owned checkpoints) earn nothing.
     Doubled on the student's birthday.
+
+    The session row is locked so the exists-check and the ledger insert are
+    one atomic step (the unique(student, session) constraint is the backstop).
     """
+    attendance_session = AttendanceSession.objects.select_for_update().get(id=attendance_session.id)
     if checkpoint.student.role != "STUDENT":
         return
     if PointsLedger.objects.filter(student=checkpoint.student, attendance_session=attendance_session).exists():
@@ -243,6 +252,7 @@ def award_station_points(attendance_session: AttendanceSession, checkpoint: Atte
 def award_scan_points(attendance_session: AttendanceSession, student, checkpoint=None) -> int:
     """Scanner points: 5 at a student station (bonus), 3 at the projector.
     Doubled on the student's birthday."""
+    attendance_session = AttendanceSession.objects.select_for_update().get(id=attendance_session.id)
     if PointsLedger.objects.filter(student=student, attendance_session=attendance_session).exists():
         return 0
     at_station = checkpoint is not None and checkpoint.student.role == "STUDENT"
@@ -259,9 +269,14 @@ def award_scan_points(attendance_session: AttendanceSession, student, checkpoint
 
 @transaction.atomic
 def award_manual_points(attendance_session: AttendanceSession, student) -> int:
-    """Manual entries earn zero points to discourage bypassing QR (FR-048)."""
+    """Manual entries earn zero points to discourage bypassing QR (FR-048).
+
+    ``student`` may be a User instance or a raw primary key.
+    """
+    attendance_session = AttendanceSession.objects.select_for_update().get(id=attendance_session.id)
+    student_id = getattr(student, "pk", student)
     ledger, _ = PointsLedger.objects.get_or_create(
-        student=student,
+        student_id=student_id,
         attendance_session=attendance_session,
         defaults={"category": PointsLedger.Category.MANUAL, "points": POINTS["MANUAL"]},
     )
@@ -276,7 +291,11 @@ def award_student_of_class(attendance_session: AttendanceSession):
     Excluded: anyone already named Student of the Class in ANY earlier
     session of the SAME course - one star per course per lifetime.
     They remain fully eligible for other courses.
+
+    The session row is locked so two concurrent calls cannot both pass the
+    "no existing star" check and award two stars.
     """
+    attendance_session = AttendanceSession.objects.select_for_update().get(id=attendance_session.id)
     existing = PointsLedger.objects.filter(
         attendance_session=attendance_session, category=PointsLedger.Category.STUDENT_OF_CLASS
     ).select_related("student").first()

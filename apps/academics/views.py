@@ -2,6 +2,7 @@
 
 Faculty, Department, Course, Offering, Enrollment, ClassDefinition, ClassSession.
 """
+from django.db import transaction
 from django.db import models as db_models
 from django.shortcuts import get_object_or_404
 from django.utils import timezone as tz
@@ -185,7 +186,6 @@ class CourseListView(APIView):
         return Response(CourseSerializer(qs, many=True).data)
 
     def post(self, request):
-        from django.db import models as db_models
         s = CourseSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         course = s.save()
@@ -447,32 +447,35 @@ class StudentRegistrationView(APIView):
         )
         created = []
         errors = []
-        for oid in offering_ids:
-            try:
-                import uuid
-                off_id = uuid.UUID(str(oid))
-            except ValueError:
-                errors.append({"offering_id": str(oid), "error": "Invalid ID format"})
-                continue
-            if off_id not in available:
-                errors.append({"offering_id": str(oid), "error": "Course not available for your department/level"})
-                continue
-            enrollment, was_created = Enrollment.objects.get_or_create(
-                student=request.user,
-                course_offering_id=off_id,
-                defaults={"status": Enrollment.Status.ACTIVE},
-            )
-            activated = was_created
-            if not was_created and enrollment.status == Enrollment.Status.DROPPED:
-                enrollment.status = Enrollment.Status.ACTIVE
-                enrollment.dropped_at = None
-                enrollment.save(update_fields=["status", "dropped_at", "updated_at"])
-                activated = True
-            if activated:
-                created.append(str(off_id))
-                from apps.projects.services import sync_student_memberships_for_offering
+        # One transaction for the batch: each course either fully registers
+        # (enrollment + project-group membership) or not at all.
+        with transaction.atomic():
+            for oid in offering_ids:
+                try:
+                    import uuid
+                    off_id = uuid.UUID(str(oid))
+                except ValueError:
+                    errors.append({"offering_id": str(oid), "error": "Invalid ID format"})
+                    continue
+                if off_id not in available:
+                    errors.append({"offering_id": str(oid), "error": "Course not available for your department/level"})
+                    continue
+                enrollment, was_created = Enrollment.objects.select_for_update().get_or_create(
+                    student=request.user,
+                    course_offering_id=off_id,
+                    defaults={"status": Enrollment.Status.ACTIVE},
+                )
+                activated = was_created
+                if not was_created and enrollment.status == Enrollment.Status.DROPPED:
+                    enrollment.status = Enrollment.Status.ACTIVE
+                    enrollment.dropped_at = None
+                    enrollment.save(update_fields=["status", "dropped_at", "updated_at"])
+                    activated = True
+                if activated:
+                    created.append(str(off_id))
+                    from apps.projects.services import sync_student_memberships_for_offering
 
-                sync_student_memberships_for_offering(request.user, CourseOffering.objects.get(id=off_id))
+                    sync_student_memberships_for_offering(request.user, CourseOffering.objects.get(id=off_id))
         return Response({
             "success": True,
             "registered_count": len(created),

@@ -9,6 +9,7 @@ import uuid
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
+from django.db import transaction
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -346,46 +347,51 @@ class AssignmentSubmissionListView(APIView):
         return Response(AssignmentSubmissionSerializer(qs.select_related("student", "file"), many=True).data)
 
     def post(self, request, assignment_id):
-        assignment = get_object_or_404(Assignment, id=assignment_id)
-        if request.user.role != "STUDENT":
-            return Response(
-                {"success": False, "error": {"code": "FORBIDDEN", "message": "Only students can submit work."}},
-                status=status.HTTP_403_FORBIDDEN,
+        # Lock the assignment row for the whole check + create so two parallel
+        # submissions cannot both pass the max_submissions check.
+        with transaction.atomic():
+            assignment = get_object_or_404(
+                Assignment.objects.select_for_update(), id=assignment_id
             )
-        if not _is_enrolled(request.user, assignment.course_offering):
-            return Response(
-                {"success": False, "error": {"code": "FORBIDDEN", "message": "You are not enrolled in this course."}},
-                status=status.HTTP_403_FORBIDDEN,
+            if request.user.role != "STUDENT":
+                return Response(
+                    {"success": False, "error": {"code": "FORBIDDEN", "message": "Only students can submit work."}},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if not _is_enrolled(request.user, assignment.course_offering):
+                return Response(
+                    {"success": False, "error": {"code": "FORBIDDEN", "message": "You are not enrolled in this course."}},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if assignment.status != Assignment.Status.ACTIVE:
+                return Response(
+                    {"success": False, "error": {"code": "CONFLICT", "message": "This assignment is no longer accepting submissions."}},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            now = timezone.now()
+            if assignment.due_at and now > assignment.due_at and not assignment.allow_late:
+                return Response(
+                    {"success": False, "error": {"code": "MISSED_DEADLINE", "message": "The submission deadline has passed."}},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            consumed = AssignmentSubmission.objects.filter(
+                assignment=assignment, student=request.user
+            ).exclude(status=AssignmentSubmission.Status.RETURNED).count()
+            if assignment.max_submissions and consumed >= assignment.max_submissions:
+                return Response(
+                    {"success": False, "error": {
+                        "code": "SUBMISSION_LIMIT_REACHED",
+                        "message": f"Submission limit of {assignment.max_submissions} reached. Contact your lecturer.",
+                    }},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            submission = AssignmentSubmission.objects.create(
+                assignment=assignment,
+                student=request.user,
+                file_id=request.data.get("file") or None,
+                note=request.data.get("note", ""),
+                is_late=bool(assignment.due_at and now > assignment.due_at),
             )
-        if assignment.status != Assignment.Status.ACTIVE:
-            return Response(
-                {"success": False, "error": {"code": "CONFLICT", "message": "This assignment is no longer accepting submissions."}},
-                status=status.HTTP_409_CONFLICT,
-            )
-        now = timezone.now()
-        if assignment.due_at and now > assignment.due_at and not assignment.allow_late:
-            return Response(
-                {"success": False, "error": {"code": "MISSED_DEADLINE", "message": "The submission deadline has passed."}},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        consumed = AssignmentSubmission.objects.filter(
-            assignment=assignment, student=request.user
-        ).exclude(status=AssignmentSubmission.Status.RETURNED).count()
-        if assignment.max_submissions and consumed >= assignment.max_submissions:
-            return Response(
-                {"success": False, "error": {
-                    "code": "SUBMISSION_LIMIT_REACHED",
-                    "message": f"Submission limit of {assignment.max_submissions} reached. Contact your lecturer.",
-                }},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        submission = AssignmentSubmission.objects.create(
-            assignment=assignment,
-            student=request.user,
-            file_id=request.data.get("file") or None,
-            note=request.data.get("note", ""),
-            is_late=bool(assignment.due_at and now > assignment.due_at),
-        )
         audit(user=request.user, action="ASSIGNMENT_SUBMITTED", resource_type="AssignmentSubmission",
               resource_id=submission.id, request=request, metadata={"assignment_id": str(assignment.id)})
         return Response(AssignmentSubmissionSerializer(submission).data, status=status.HTTP_201_CREATED)
@@ -554,37 +560,42 @@ class ClassroomCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if CourseOffering.objects.filter(course=course, semester=semester).exists():
-            return Response(
-                {"success": False, "error": {"code": "CONFLICT",
-                 "message": f"A classroom for {course.code} already exists in {semester.name}."}},
-                status=status.HTTP_409_CONFLICT,
+        # Atomic: the offering and its auto-enrollments commit together. Using
+        # get_or_create lets the unique(course, semester) constraint decide the
+        # winner when two requests race, so the loser gets a clean 409.
+        with transaction.atomic():
+            offering, created = CourseOffering.objects.get_or_create(
+                course=course,
+                semester=semester,
+                defaults={
+                    "department": course.department,
+                    "lecturer": request.user,
+                    "status": "ACTIVE",
+                },
             )
+            if not created:
+                return Response(
+                    {"success": False, "error": {"code": "CONFLICT",
+                     "message": f"A classroom for {course.code} already exists in {semester.name}."}},
+                    status=status.HTTP_409_CONFLICT,
+                )
 
-        offering = CourseOffering.objects.create(
-            course=course,
-            semester=semester,
-            department=course.department,
-            lecturer=request.user,
-            status="ACTIVE",
-        )
-
-        cohort_qs = User.objects.filter(
-            role="STUDENT",
-            is_active=True,
-            student_profile__department=course.department,
-        )
-        if course.level:
-            cohort_qs = cohort_qs.filter(student_profile__level=course.level)
-        enrolled = 0
-        for student in cohort_qs:
-            _e, created = Enrollment.objects.get_or_create(
-                student=student,
-                course_offering=offering,
-                defaults={"status": Enrollment.Status.ACTIVE, "enrolled_at": timezone.now()},
+            cohort_qs = User.objects.filter(
+                role="STUDENT",
+                is_active=True,
+                student_profile__department=course.department,
             )
-            if created:
-                enrolled += 1
+            if course.level:
+                cohort_qs = cohort_qs.filter(student_profile__level=course.level)
+            enrolled = 0
+            for student in cohort_qs:
+                _e, was_enrolled = Enrollment.objects.get_or_create(
+                    student=student,
+                    course_offering=offering,
+                    defaults={"status": Enrollment.Status.ACTIVE, "enrolled_at": timezone.now()},
+                )
+                if was_enrolled:
+                    enrolled += 1
 
         audit(user=request.user, action="CLASSROOM_CREATED", resource_type="CourseOffering",
               resource_id=offering.id, request=request,

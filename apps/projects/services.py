@@ -102,7 +102,11 @@ def set_group_leader(group, student):
 
     A project member who is not yet in any group is moved into this group
     rather than rejected, so a delegate can appoint a leader in one step.
+
+    The group row is locked so two concurrent appointments cannot leave the
+    group with two leaders (last write would otherwise win only the FK).
     """
+    group = ProjectGroup.objects.select_for_update().get(pk=group.pk)
     if student is not None:
         member = ProjectMember.objects.filter(project=group.project, student=student).first()
         if member is None:

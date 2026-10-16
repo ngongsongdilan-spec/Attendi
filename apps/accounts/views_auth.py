@@ -9,6 +9,8 @@ from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
+from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -306,18 +308,29 @@ def _too_many_attempts():
 
 
 def _burn_otp(user):
-    """Clear the OTP fields so a spent/exhausted code can never be reused."""
+    """Clear the OTP fields so a spent/exhausted code can never be reused.
+
+    Uses a single UPDATE (not read-modify-write) so two concurrent callers
+    cannot resurrect a burned code.
+    """
+    User.objects.filter(pk=user.pk).update(
+        reset_otp_hash=None,
+        reset_otp_expires=None,
+        reset_otp_attempts=0,
+    )
     user.reset_otp_hash = None
     user.reset_otp_expires = None
     user.reset_otp_attempts = 0
-    user.save(
-        update_fields=[
-            "reset_otp_hash",
-            "reset_otp_expires",
-            "reset_otp_attempts",
-            "updated_at",
-        ]
-    )
+
+
+def _lock_user(email):
+    """Fetch the user row under ``SELECT ... FOR UPDATE``.
+
+    Serializes concurrent verify/confirm requests for the same account so the
+    OTP attempt budget and single-use guarantee hold under parallel guesses.
+    Degrades to a plain read on backends without row locking (e.g. SQLite).
+    """
+    return User.objects.select_for_update().filter(email__iexact=email).first()
 
 
 def _otp_precheck(user):
@@ -340,8 +353,9 @@ def _otp_matches(user, otp):
 
 
 def _record_failed_attempt(user):
-    user.reset_otp_attempts += 1
-    user.save(update_fields=["reset_otp_attempts", "updated_at"])
+    """Atomically bump the wrong-guess counter (no lost updates under load)."""
+    User.objects.filter(pk=user.pk).update(reset_otp_attempts=F("reset_otp_attempts") + 1)
+    user.refresh_from_db(fields=["reset_otp_attempts"])
 
 
 def _revoke_all_refresh_tokens(user):
@@ -426,13 +440,16 @@ class VerifyOtpView(APIView):
         email = serializer.validated_data["email"]
         otp = serializer.validated_data["otp"]
 
-        user = User.objects.filter(email__iexact=email).first()
-        failure = _otp_precheck(user)
-        if failure is not None:
-            return failure
-        if not _otp_matches(user, otp):
-            _record_failed_attempt(user)
-            return Response(_invalid_otp(), status=status.HTTP_400_BAD_REQUEST)
+        # Row lock: concurrent verifies for one account run one at a time, so a
+        # wrong guess can never be lost between the read and the increment.
+        with transaction.atomic():
+            user = _lock_user(email)
+            failure = _otp_precheck(user)
+            if failure is not None:
+                return failure
+            if not _otp_matches(user, otp):
+                _record_failed_attempt(user)
+                return Response(_invalid_otp(), status=status.HTTP_400_BAD_REQUEST)
 
         return Response({"message": "OTP verified."}, status=status.HTTP_200_OK)
 
@@ -458,30 +475,33 @@ class ConfirmResetView(APIView):
         otp = serializer.validated_data["otp"]
         new_password = serializer.validated_data["new_password"]
 
-        user = User.objects.filter(email__iexact=email).first()
-        failure = _otp_precheck(user)
-        if failure is not None:
-            return failure
-        if not _otp_matches(user, otp):
-            _record_failed_attempt(user)
-            return Response(_invalid_otp(), status=status.HTTP_400_BAD_REQUEST)
+        # Row lock makes check + burn + password-set a single atomic step, so
+        # the OTP is genuinely single-use even under concurrent requests.
+        with transaction.atomic():
+            user = _lock_user(email)
+            failure = _otp_precheck(user)
+            if failure is not None:
+                return failure
+            if not _otp_matches(user, otp):
+                _record_failed_attempt(user)
+                return Response(_invalid_otp(), status=status.HTTP_400_BAD_REQUEST)
 
-        user.set_password(new_password)
-        user.reset_otp_hash = None
-        user.reset_otp_expires = None
-        user.reset_otp_attempts = 0
-        user.must_change_password = False
-        user.save(
-            update_fields=[
-                "password",
-                "reset_otp_hash",
-                "reset_otp_expires",
-                "reset_otp_attempts",
-                "must_change_password",
-                "updated_at",
-            ]
-        )
-        _revoke_all_refresh_tokens(user)
+            user.set_password(new_password)
+            user.reset_otp_hash = None
+            user.reset_otp_expires = None
+            user.reset_otp_attempts = 0
+            user.must_change_password = False
+            user.save(
+                update_fields=[
+                    "password",
+                    "reset_otp_hash",
+                    "reset_otp_expires",
+                    "reset_otp_attempts",
+                    "must_change_password",
+                    "updated_at",
+                ]
+            )
+            _revoke_all_refresh_tokens(user)
         send_password_changed_email(user)
         audit(
             user=user,

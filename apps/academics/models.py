@@ -2,7 +2,8 @@ import uuid
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import models
+from django.db import models, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.core.models import TimeStampedUUIDModel
@@ -51,14 +52,25 @@ class Semester(TimeStampedUUIDModel):
     class Meta:
         ordering = ["-academic_year", "number"]
         unique_together = [("academic_year", "number")]
+        constraints = [
+            # At most one semester may be active at a time. The partial unique
+            # index makes this a hard DB guarantee (the save() demotion alone
+            # is racy under concurrent activation).
+            models.UniqueConstraint(
+                fields=["is_active"],
+                condition=Q(is_active=True),
+                name="unique_active_semester",
+            ),
+        ]
 
     def __str__(self):
         return self.name
 
     def save(self, *args, **kwargs):
-        if self.is_active:
-            Semester.objects.filter(is_active=True).exclude(pk=self.pk).update(is_active=False)
-        super().save(*args, **kwargs)
+        with transaction.atomic():
+            if self.is_active:
+                Semester.objects.filter(is_active=True).exclude(pk=self.pk).update(is_active=False)
+            super().save(*args, **kwargs)
 
 
 class Course(TimeStampedUUIDModel):
