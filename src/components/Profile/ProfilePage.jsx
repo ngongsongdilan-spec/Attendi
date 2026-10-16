@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
-import { Edit2, Save, X, User, Mail, Building, GraduationCap, Phone, MapPin } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Edit2, Save, X, AlertTriangle, Trash2 } from 'lucide-react';
+import { deleteOwnAccount, setFlashMessage } from '../../utils/authStorage';
 
-const ProfilePage = ({ user }) => {
+const ProfilePage = ({ user, onLogout }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [formData, setFormData] = useState({
     fullName: user?.fullName || '',
     email: user?.email || '',
@@ -13,6 +16,15 @@ const ProfilePage = ({ user }) => {
     address: user?.address || '',
   });
   const [success, setSuccess] = useState('');
+
+  useEffect(() => {
+    if (!showDeleteConfirm) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') setShowDeleteConfirm(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showDeleteConfirm]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -38,6 +50,17 @@ const ProfilePage = ({ user }) => {
   };
 
   const userRole = user?.role || 'student';
+
+  const handleDeleteAccount = () => {
+    const result = deleteOwnAccount({ user, role: userRole });
+    if (!result.success) {
+      setDeleteError(result.reason || 'Unable to delete this account.');
+      return;
+    }
+    setFlashMessage('Your account has been deleted from this frontend simulation.');
+    setShowDeleteConfirm(false);
+    if (onLogout) onLogout();
+  };
 
   return (
     <div className="space-y-4 md:space-y-6 max-w-4xl mx-auto">
@@ -74,13 +97,13 @@ const ProfilePage = ({ user }) => {
             </div>
             <div className="text-center sm:text-left">
               <h3 className="text-lg md:text-xl font-bold">{formData.fullName || user?.fullName}</h3>
-              <p className="text-[#8683BA] text-sm capitalize">
+              <p className="text-white/80 text-sm capitalize">
                 {userRole === 'student' ? '🎓 Student' : 
                  userRole === 'lecturer' ? '👨‍🏫 Lecturer' : 
                  userRole === 'admin' ? '👑 Admin' : 'User'}
               </p>
               {userRole === 'student' && formData.level && (
-                <p className="text-[#8683BA] text-xs">Level {formData.level}</p>
+                <p className="text-white/80 text-xs">Level {formData.level}</p>
               )}
             </div>
           </div>
@@ -221,6 +244,84 @@ const ProfilePage = ({ user }) => {
           )}
         </div>
       </div>
+
+      {/* Account Management - students only */}
+      {userRole === 'student' && (
+        <div className="fet-card overflow-hidden">
+          <div className="p-4 md:p-6 border-b border-border-default">
+            <h3 className="text-base font-semibold text-text-primary">Account Management</h3>
+            <p className="text-sm text-text-secondary mt-0.5">Manage your account data</p>
+          </div>
+          <div className="p-4 md:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="font-medium text-text-primary">Delete My Account</p>
+              <p className="text-sm text-text-secondary mt-0.5">
+                Permanently remove your account and profile data. You will be signed out immediately.
+              </p>
+            </div>
+            <button
+              onClick={() => { setDeleteError(''); setShowDeleteConfirm(true); }}
+              className="fet-btn-danger flex items-center gap-2 flex-shrink-0 self-start sm:self-auto"
+            >
+              <Trash2 size={18} />
+              Delete My Account
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation dialog */}
+      {showDeleteConfirm && (
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => setShowDeleteConfirm(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-account-title"
+            aria-describedby="delete-account-desc"
+            className="fet-card fet-modal-panel bg-white rounded-2xl shadow-modal max-w-md w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 bg-red-50">
+                <AlertTriangle size={20} className="text-danger" />
+              </div>
+              <div className="min-w-0">
+                <h3 id="delete-account-title" className="text-lg font-bold text-text-primary">
+                  Delete account permanently?
+                </h3>
+                <p id="delete-account-desc" className="text-sm text-text-secondary mt-1">
+                  This removes your account from this frontend simulation and signs you out. This action cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            {deleteError && (
+              <p className="mt-4 text-sm text-danger bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                {deleteError}
+              </p>
+            )}
+
+            <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="fet-btn-secondary w-full sm:w-auto"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                className="fet-btn-danger w-full sm:w-auto flex items-center justify-center gap-2"
+              >
+                <Trash2 size={18} />
+                Delete My Account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

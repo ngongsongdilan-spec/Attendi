@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { 
   mockSchoolYears, 
   mockSemesters, 
@@ -13,8 +14,6 @@ import {
   mockMilestones,
   mockAttendanceSessions,
   mockAttendanceRecords,
-  getCurrentSchoolYear,
-  getCurrentSemester,
 } from '../data/MockData';
 
 const AppContext = createContext();
@@ -86,7 +85,7 @@ export const AppProvider = ({ children }) => {
   };
 
   // ===== COURSES =====
-  const [courses, setCourses] = useState(() => 
+  const [courses] = useState(() => 
     loadFromStorage('fet_courses', mockCourses)
   );
 
@@ -351,16 +350,6 @@ export const AppProvider = ({ children }) => {
     addActivity('System', 'closed attendance session');
   };
 
-  const expireAttendanceSession = (sessionId) => {
-    setAttendanceSessions(prev => prev.map(s => {
-      if (s.id !== sessionId) return s;
-      if (s.status === 'ACTIVE' && Date.now() > s.sessionExpiresAt) {
-        return { ...s, status: 'EXPIRED' };
-      }
-      return s;
-    }));
-  };
-
   const getActiveSession = () => {
     const active = attendanceSessions.find(s => s.status === 'ACTIVE');
     if (!active) return null;
@@ -433,7 +422,7 @@ export const AppProvider = ({ children }) => {
   };
 
   // ===== COURSE HELPERS =====
-  const getCoursesForStudent = (matricule) => {
+  const getCoursesForStudent = useCallback((matricule) => {
     const student = students.find(s => s.matricule === matricule);
     if (!student) return [];
     return courses.filter(c => 
@@ -442,9 +431,9 @@ export const AppProvider = ({ children }) => {
       c.semester === currentSemester?.name &&
       c.schoolYear === currentSchoolYear?.name
     );
-  };
+  }, [students, courses, currentSemester, currentSchoolYear]);
 
-  const getCurrentSemesterStats = (studentMatricule) => {
+  const getCurrentSemesterStats = useCallback((studentMatricule) => {
     const student = students.find(s => s.matricule === studentMatricule);
     if (!student) return { attendance: 0, totalClasses: 0, present: 0, absent: 0 };
     
@@ -465,7 +454,7 @@ export const AppProvider = ({ children }) => {
       present: present,
       absent: absent,
     };
-  };
+  }, [students, attendance, currentSemester, currentSchoolYear]);
 
   const value = {
     schoolYears,

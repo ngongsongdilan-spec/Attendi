@@ -1,5 +1,11 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { mockStudents, mockLecturers, mockAdmin } from '../../data/MockData';
+import {
+  getRegisteredUsers,
+  accountIdentifiers,
+  isAccountDeleted,
+  consumeFlashMessage,
+} from '../../utils/authStorage';
 import { Eye, EyeOff, ArrowRight, GraduationCap, Shield, BookOpen } from 'lucide-react';
 
 const Login = ({ onLogin, onSwitchToSignUp }) => {
@@ -8,7 +14,13 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const flash = consumeFlashMessage();
+    if (flash) setNotice(flash);
+  }, []);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -19,6 +31,12 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
 
     if (!id || !password) {
       setError('Please enter your identifier and password.');
+      setIsLoading(false);
+      return;
+    }
+
+    if (isAccountDeleted([id])) {
+      setError('This account has been deleted and can no longer be used to sign in.');
       setIsLoading(false);
       return;
     }
@@ -59,8 +77,30 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
       foundUser = { ...mockAdmin, role: 'admin' };
     }
 
+    // Accounts created through Sign Up live in localStorage (fet_users).
+    if (!foundUser) {
+      const local = getRegisteredUsers().find(u =>
+        (u.matricule && u.matricule.toLowerCase() === id.toLowerCase()) ||
+        u.email.toLowerCase() === id.toLowerCase()
+      );
+      if (local) {
+        if (password !== local.password) {
+          setError('Incorrect password. Please try again.');
+          setIsLoading(false);
+          return;
+        }
+        foundUser = { ...local, role: local.role || 'student' };
+      }
+    }
+
     if (!foundUser) {
       setError('No account found with that identifier. Check with your faculty office or register below.');
+      setIsLoading(false);
+      return;
+    }
+
+    if (isAccountDeleted(accountIdentifiers(foundUser))) {
+      setError('This account has been deleted and can no longer be used to sign in.');
       setIsLoading(false);
       return;
     }
@@ -92,6 +132,12 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
             <h2 className="text-[28px] font-bold text-text-primary leading-tight">Welcome back</h2>
             <p className="text-[14px] text-text-secondary mt-1.5">Sign in to your account to continue</p>
           </div>
+
+          {notice && (
+            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-[13px] mb-5 font-medium">
+              {notice}
+            </div>
+          )}
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-[13px] mb-5 font-medium">
@@ -172,7 +218,7 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
           </form>
 
           <p className="text-center mt-6 text-[13px] text-text-secondary">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <button onClick={onSwitchToSignUp} className="text-primary font-semibold hover:opacity-80 transition-opacity">Register</button>
           </p>
 
@@ -222,23 +268,23 @@ const Login = ({ onLogin, onSwitchToSignUp }) => {
           <h2 className="text-[28px] font-bold text-white leading-tight mb-4">
             Faculty of Engineering<br/>& Technology
           </h2>
-          <p className="text-[15px] text-white/50 leading-relaxed">
+          <p className="text-[15px] text-white/70 leading-relaxed">
             Academic, Learning & Project Management Platform. Manage courses, track attendance, collaborate on projects, and monitor your academic progress.
           </p>
           <div className="flex items-center justify-center gap-8 mt-10">
             <div className="text-center">
               <p className="text-[24px] font-bold text-white">5</p>
-              <p className="text-[11px] text-white/40 font-medium uppercase tracking-wider">Departments</p>
+              <p className="text-[11px] text-white/70 font-medium uppercase tracking-wider">Departments</p>
             </div>
             <div className="w-px h-8 bg-white/10"></div>
             <div className="text-center">
               <p className="text-[24px] font-bold text-white">18+</p>
-              <p className="text-[11px] text-white/40 font-medium uppercase tracking-wider">Courses</p>
+              <p className="text-[11px] text-white/70 font-medium uppercase tracking-wider">Courses</p>
             </div>
             <div className="w-px h-8 bg-white/10"></div>
             <div className="text-center">
               <p className="text-[24px] font-bold text-white">100%</p>
-              <p className="text-[11px] text-white/40 font-medium uppercase tracking-wider">Digital</p>
+              <p className="text-[11px] text-white/70 font-medium uppercase tracking-wider">Digital</p>
             </div>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Users, FolderKanban, Building, Briefcase, UserPlus, PlusCircle, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import StatsCard from './StatsCard';
@@ -9,7 +9,7 @@ const CoordinatorDashboard = ({ user }) => {
   const navigate = useNavigate();
   const { students, lecturers, projects, tasks } = useAppContext();
   const [stats, setStats] = useState({ students: 0, lecturers: 0, projects: 0, tasks: 0 });
-  const [departmentName, setDepartmentName] = useState(user?.department || 'Computer Engineering');
+  const [departmentName] = useState(user?.department || 'Computer Engineering');
 
   useEffect(() => {
     const dept = user?.department || 'Computer Engineering';
@@ -40,7 +40,7 @@ const CoordinatorDashboard = ({ user }) => {
       <div className="fet-welcome-banner">
         <div className="relative z-10">
           <h2 className="text-[20px] md:text-[22px] font-bold">Welcome, {user?.fullName || 'Coordinator'}</h2>
-          <p className="text-white/50 text-[13px] mt-0.5">{departmentName} Department</p>
+          <p className="text-white/80 text-[13px] mt-0.5">{departmentName} Department</p>
         </div>
       </div>
 

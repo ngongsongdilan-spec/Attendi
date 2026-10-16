@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
-  Users, FolderKanban, CheckCircle, Clock, 
+  Users, CheckCircle, Clock, 
   BookOpen, AlertCircle, QrCode, Search
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import StatsCard from './StatsCard';
-import ActivityFeed from './ActivityFeed';
 import { useAppContext } from '../../context/AppContext';
 
 const LecturerDashboard = ({ user }) => {
@@ -26,7 +25,7 @@ const LecturerDashboard = ({ user }) => {
   const lecturerName = user?.fullName || 'Lecturer';
   const lecturerDepartment = user?.department || 'Engineering';
   const lecturerTitle = user?.title || 'Lecturer';
-  const lecturerCoursesData = user?.courses || [];
+  const lecturerCoursesData = useMemo(() => user?.courses || [], [user?.courses]);
 
   useEffect(() => {
     const totalStudents = students.length;
@@ -70,11 +69,11 @@ const LecturerDashboard = ({ user }) => {
         <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <h2 className="text-[20px] md:text-[22px] font-bold">Welcome back, {lecturerName}</h2>
-            <p className="text-white/50 text-[13px]">{lecturerTitle} · {lecturerDepartment} Department</p>
-            <p className="text-white/35 text-[12px] mt-0.5">Teaching {stats.courses} courses this semester</p>
+            <p className="text-white/80 text-[13px]">{lecturerTitle} · {lecturerDepartment} Department</p>
+            <p className="text-white/70 text-[12px] mt-0.5">Teaching {stats.courses} courses this semester</p>
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-xl px-5 py-3 text-center min-w-[100px] border border-white/10">
-            <p className="text-[11px] text-white/50 font-medium uppercase tracking-wider">Students</p>
+            <p className="text-[11px] text-white/80 font-medium uppercase tracking-wider">Students</p>
             <p className="text-[26px] font-bold text-white leading-tight">{stats.enrolled}</p>
           </div>
         </div>
@@ -167,7 +166,7 @@ const LecturerDashboard = ({ user }) => {
               </div>
             ) : (
               <div className="text-center py-8">
-                <CheckCircle size={32} className="mx-auto text-success/50" />
+                <CheckCircle size={32} className="mx-auto text-success" />
                 <p className="text-[13px] text-text-secondary mt-2">No records requiring review</p>
                 <p className="text-[11px] text-text-secondary">Start an attendance session to begin capturing student attendance.</p>
               </div>

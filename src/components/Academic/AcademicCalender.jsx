@@ -1,4 +1,3 @@
-import React from 'react';
 import { useAppContext } from '../../context/AppContext';
 import SemesterSelector from './SemesterSelector';
 import SchoolYearManager from './SchoolYearManager';
@@ -10,10 +9,10 @@ const AcademicCalendar = () => {
     <div className="space-y-6">
       <div className="fet-welcome-banner">
         <h2 className="text-2xl font-bold">Academic Calendar</h2>
-        <p className="text-[#8683BA] mt-1">
+        <p className="text-white/80 mt-1">
           {currentSemester?.name} • {currentSchoolYear?.name}
         </p>
-        <p className="text-[#8683BA] text-sm mt-1">
+        <p className="text-white/80 text-sm mt-1">
           {currentSemester?.startDate} - {currentSemester?.endDate}
         </p>
       </div>

@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { Upload, X, FileText, Check, AlertCircle } from 'lucide-react';
+import { useState } from 'react';
+import { Upload, X, Check, AlertCircle } from 'lucide-react';
 
-const ContributionForm = ({ projectId, onSubmit, onClose }) => {
+const ContributionForm = ({ onSubmit, onClose }) => {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -127,7 +127,7 @@ const ContributionForm = ({ projectId, onSubmit, onClose }) => {
               Select File
             </label>
             {formData.evidenceName && (
-              <div className="mt-2 flex items-center gap-2 text-sm text-green-600">
+              <div className="mt-2 flex items-center gap-2 text-sm text-success">
                 <Check size={16} /> {formData.evidenceName}
               </div>
             )}
