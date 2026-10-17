@@ -342,10 +342,16 @@ CORS_ALLOW_CREDENTIALS = True
 
 if "test" in sys.argv or "pytest" in sys.modules:
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
-    # Tests run against an isolated in-memory SQLite, never the configured DB.
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": ":memory:",
+    # Default: an isolated in-memory SQLite, never the configured DB. Set
+    # FET_TEST_DATABASE_URL to a throwaway PostgreSQL to exercise the
+    # SELECT ... FOR UPDATE concurrency tests (row locking is a no-op on SQLite).
+    _test_url = env("FET_TEST_DATABASE_URL", "")
+    if _test_url.startswith(("postgres://", "postgresql://")):
+        DATABASES = {"default": parse_database_url(_test_url)}
+    else:
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.sqlite3",
+                "NAME": ":memory:",
+            }
         }
-    }
