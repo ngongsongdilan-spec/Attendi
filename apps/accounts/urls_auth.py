@@ -9,6 +9,7 @@ urlpatterns = [
     path("logout/", views_auth.LogoutView.as_view(), name="auth-logout"),
     path("refresh/", views_auth.TokenRefreshView.as_view(), name="auth-refresh"),
     path("me/", views_auth.MeView.as_view(), name="auth-me"),
+    path("account/", views_auth.DeleteAccountView.as_view(), name="auth-delete-account"),
     path("change-password/", views_auth.ChangePasswordView.as_view(), name="auth-change-password"),
     path("forgot-password/request-otp/", views_auth.RequestOtpView.as_view(), name="auth-request-otp"),
     path("reset-password/verify-otp/", views_auth.VerifyOtpView.as_view(), name="auth-verify-otp"),

@@ -280,6 +280,66 @@ class MeView(APIView):
         return Response(MeSerializer(request.user).data)
 
 
+class DeleteAccountView(APIView):
+    """DELETE /api/v1/auth/account/ — delete the signed-in user's own account.
+
+    Only students may delete their own account (matching the product rule that
+    the student is the account holder). This is a *soft* delete: the row is
+    deactivated and archived and every refresh token is revoked, so the account
+    can never sign in again, while the academic records that reference it
+    (attendance, submissions, marks) stay intact for the institution.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request):
+        user = request.user
+        if user.role != User.Role.STUDENT:
+            return Response(
+                {
+                    "success": False,
+                    "error": {
+                        "code": "FORBIDDEN",
+                        "message": "Only student accounts can be deleted here.",
+                    },
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Row lock + atomic so the revoke/deactivate happens as one step even if
+        # the request is retried or races another session for the same account.
+        with transaction.atomic():
+            locked = User.objects.select_for_update().get(pk=user.pk)
+            _revoke_all_refresh_tokens(locked)
+            locked.is_active = False
+            locked.status = User.Status.ARCHIVED
+            locked.reset_otp_hash = None
+            locked.reset_otp_expires = None
+            locked.reset_otp_attempts = 0
+            locked.save(
+                update_fields=[
+                    "is_active",
+                    "status",
+                    "reset_otp_hash",
+                    "reset_otp_expires",
+                    "reset_otp_attempts",
+                    "updated_at",
+                ]
+            )
+
+        audit(
+            user=user,
+            action="ACCOUNT_DELETED",
+            resource_type="User",
+            resource_id=user.id,
+            request=request,
+            metadata={"email": user.email, "role": user.role},
+        )
+        resp = Response({"message": "Your account has been deleted."}, status=status.HTTP_200_OK)
+        clear_jwt_cookies(resp)
+        return resp
+
+
 def _hash_otp(raw_otp):
     """SHA-256 hex digest. The DB only ever stores this, never the raw code."""
     return hashlib.sha256(raw_otp.encode("utf-8")).hexdigest()
