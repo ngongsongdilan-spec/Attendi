@@ -283,10 +283,9 @@ class MeView(APIView):
 class DeleteAccountView(APIView):
     """DELETE /api/v1/auth/account/ — delete the signed-in user's own account.
 
-    Only students may delete their own account (matching the product rule that
-    the student is the account holder). This is a *soft* delete: the row is
-    deactivated and archived and every refresh token is revoked, so the account
-    can never sign in again, while the academic records that reference it
+    Available to every role (student, lecturer, admin). This is a *soft* delete:
+    the row is deactivated and archived and every refresh token is revoked, so the
+    account can never sign in again, while the academic records that reference it
     (attendance, submissions, marks) stay intact for the institution.
     """
 
@@ -294,17 +293,6 @@ class DeleteAccountView(APIView):
 
     def delete(self, request):
         user = request.user
-        if user.role != User.Role.STUDENT:
-            return Response(
-                {
-                    "success": False,
-                    "error": {
-                        "code": "FORBIDDEN",
-                        "message": "Only student accounts can be deleted here.",
-                    },
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
 
         # Row lock + atomic so the revoke/deactivate happens as one step even if
         # the request is retried or races another session for the same account.

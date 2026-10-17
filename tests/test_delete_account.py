@@ -1,7 +1,7 @@
 """Delete-own-account endpoint.
 
 Guards the contract of the soft delete:
-  * only students may delete their own account,
+  * any role may delete their own account (student, lecturer, admin),
   * the account is deactivated/archived and can no longer sign in,
   * every refresh token for the account is revoked,
   * unauthenticated callers are rejected.
@@ -44,17 +44,30 @@ def test_student_deletes_own_account_and_cannot_sign_in_again():
     assert login.status_code == 403
 
 
-def test_lecturer_cannot_delete_own_account():
+def test_lecturer_can_delete_own_account():
     user = _user(role=User.Role.LECTURER, email="lect@test.edu")
     client = APIClient()
     client.force_authenticate(user=user)
 
     resp = client.delete(reverse("auth-delete-account"))
-    assert resp.status_code == 403
+    assert resp.status_code == 200
 
     user.refresh_from_db()
-    assert user.is_active is True
-    assert user.status == User.Status.ACTIVE
+    assert user.is_active is False
+    assert user.status == User.Status.ARCHIVED
+
+
+def test_admin_can_delete_own_account():
+    user = _user(role=User.Role.SYSTEM_ADMIN, email="admin@test.edu")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    resp = client.delete(reverse("auth-delete-account"))
+    assert resp.status_code == 200
+
+    user.refresh_from_db()
+    assert user.is_active is False
+    assert user.status == User.Status.ARCHIVED
 
 
 def test_unauthenticated_cannot_delete():
