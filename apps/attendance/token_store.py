@@ -6,8 +6,16 @@ while remaining functional without a Redis server during development.
 
 Refs: Tech Stack doc 12 §6-8, Business Rules doc 04 §7-8, API Spec doc 07 §§24-32.
 """
-import secrets
+import base64
+import binascii
+import hashlib
+import hmac
 import json
+import math
+import secrets
+import struct
+from datetime import datetime, timedelta, timezone as datetime_timezone
+from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
@@ -17,14 +25,168 @@ from django.utils import timezone
 from .models import AttendanceCheckpoint, AttendanceRecord, AttendanceSession
 
 TOKEN_TTL = getattr(settings, "ATTENDANCE_TOKEN_TTL_SECONDS", 10)
+TOKEN_V2 = 2
+PROJECTOR_ID = UUID(int=0)
+TOKEN_HEADER = struct.Struct(">B16s16sII")
+TOKEN_BYTES = TOKEN_HEADER.size + hashlib.sha256().digest_size
+
+
+class TokenVerificationError(ValueError):
+    """A malformed or incorrectly signed attendance token."""
+
+
+def _decode_b64url(value):
+    """Use the exact padding required by strict decoders (including Python 3.14)."""
+    return base64.b64decode(
+        value + "=" * (-len(value) % 4), altchars=b"-_", validate=True,
+    )
+
+
+def configured_hmac_key():
+    """Decode a 32-byte key from hex, base64url, or 32 raw UTF-8 bytes."""
+    value = getattr(settings, "ATTENDANCE_TOKEN_HMAC_KEY", "")
+    if isinstance(value, bytes):
+        key = value
+    elif isinstance(value, str):
+        try:
+            if value.startswith("hex:"):
+                key = bytes.fromhex(value[4:])
+            elif len(value) == 64 and all(char in "0123456789abcdefABCDEF" for char in value):
+                key = bytes.fromhex(value)
+            elif value.startswith("base64:"):
+                key = _decode_b64url(value[7:])
+            else:
+                key = value.encode("utf-8")
+        except (ValueError, binascii.Error) as exc:
+            raise ValueError("Invalid attendance HMAC key encoding") from exc
+    else:
+        raise ValueError("Invalid attendance HMAC key type")
+    if len(key) < 32:
+        raise ValueError("Attendance HMAC key must contain at least 32 bytes")
+    return key
+
+
+def derive_signing_key(session_id, checkpoint_id=None):
+    """Scope signing material to one session and one station or projector."""
+    session_uuid = UUID(str(session_id))
+    checkpoint_uuid = UUID(str(checkpoint_id)) if checkpoint_id else PROJECTOR_ID
+    context = b"fet-attendance-v2\x00" + session_uuid.bytes + checkpoint_uuid.bytes
+    return hmac.new(configured_hmac_key(), context, hashlib.sha256).digest()
+
+
+def slot_origin_ts(attendance_session):
+    # Whole UTC seconds make the device and server agree on exact 10s slots.
+    return math.ceil(attendance_session.started_at.timestamp())
+
+
+def credential_bundle(attendance_session, checkpoint_id=None):
+    """Material a permitted device needs to mint only its own QR tokens."""
+    origin = slot_origin_ts(attendance_session)
+    duration = TOKEN_TTL
+    max_slots = max(0, int((attendance_session.effective_end.timestamp() - origin) // duration))
+    key = derive_signing_key(attendance_session.id, checkpoint_id)
+    return {
+        "session_id": str(attendance_session.id),
+        "checkpoint_id": str(checkpoint_id) if checkpoint_id else None,
+        "hmac_key_id": "v2",
+        "hmac_key": base64.urlsafe_b64encode(key).rstrip(b"=").decode("ascii"),
+        "session_started_at": attendance_session.started_at,
+        "session_expires_at": attendance_session.effective_end,
+        "slot_origin_ts": origin,
+        "slot_duration_seconds": duration,
+        "max_slots": max_slots,
+    }
+
+
+def generate_hmac_token(attendance_session, checkpoint_id=None, slot_index=None, at=None):
+    """Sign a compact v2 token for a fixed slot and station."""
+    origin = slot_origin_ts(attendance_session)
+    current_slot = slot_index is None
+    if slot_index is None:
+        slot_index = max(0, int(((at or timezone.now()).timestamp() - origin) // TOKEN_TTL))
+    if not 0 <= slot_index <= 0xFFFFFFFF:
+        raise ValueError("Token slot is outside the supported range")
+    expiry_ts = origin + (slot_index + 1) * TOKEN_TTL
+    if current_slot and expiry_ts > attendance_session.expires_at.timestamp():
+        raise ValueError("No full v2 QR slot remains in this attendance session")
+    if expiry_ts > 0xFFFFFFFF:
+        raise ValueError("Token expiry is outside the supported range")
+    checkpoint_uuid = UUID(str(checkpoint_id)) if checkpoint_id else PROJECTOR_ID
+    header = TOKEN_HEADER.pack(
+        TOKEN_V2, UUID(str(attendance_session.id)).bytes,
+        checkpoint_uuid.bytes, slot_index, expiry_ts,
+    )
+    signature = hmac.new(
+        derive_signing_key(attendance_session.id, checkpoint_id), header, hashlib.sha256
+    ).digest()
+    return base64.urlsafe_b64encode(header + signature).rstrip(b"=").decode("ascii")
+
+
+def decode_token_version(token):
+    """Identify the fixed-size v2 envelope; opaque legacy tokens remain v1."""
+    if not isinstance(token, str) or len(token) != 98:
+        return 1
+    try:
+        raw = _decode_b64url(token)
+    except (ValueError, binascii.Error):
+        return 1
+    return TOKEN_V2 if len(raw) == TOKEN_BYTES and raw[0] == TOKEN_V2 else 1
+
+
+def verify_hmac_token(token):
+    """Verify token integrity without reading Redis or PostgreSQL."""
+    try:
+        raw = _decode_b64url(token)
+        if len(raw) != TOKEN_BYTES:
+            raise TokenVerificationError("Invalid v2 token size")
+        version, session_bytes, checkpoint_bytes, slot_index, expiry_ts = TOKEN_HEADER.unpack(
+            raw[:TOKEN_HEADER.size]
+        )
+        if version != TOKEN_V2:
+            raise TokenVerificationError("Unsupported token version")
+        session_id = UUID(bytes=session_bytes)
+        checkpoint_uuid = UUID(bytes=checkpoint_bytes)
+        checkpoint_id = None if checkpoint_uuid == PROJECTOR_ID else checkpoint_uuid
+        expected = hmac.new(
+            derive_signing_key(session_id, checkpoint_id), raw[:TOKEN_HEADER.size], hashlib.sha256
+        ).digest()
+        if not hmac.compare_digest(expected, raw[TOKEN_HEADER.size:]):
+            raise TokenVerificationError("Invalid token signature")
+    except (ValueError, binascii.Error, struct.error) as exc:
+        raise TokenVerificationError("Invalid attendance token") from exc
+    return {
+        "session_id": session_id,
+        "checkpoint_id": checkpoint_id,
+        "slot_index": slot_index,
+        "expiry_ts": expiry_ts,
+    }
+
+
+def token_slot_bounds(attendance_session, claims):
+    """Recompute slot timing from the database session, never client input."""
+    if claims["session_id"] != attendance_session.id:
+        raise TokenVerificationError("Session mismatch")
+    start_ts = slot_origin_ts(attendance_session) + claims["slot_index"] * TOKEN_TTL
+    end_ts = start_ts + TOKEN_TTL
+    if claims["expiry_ts"] != end_ts:
+        raise TokenVerificationError("Token slot expiry mismatch")
+    start = datetime.fromtimestamp(start_ts, tz=datetime_timezone.utc)
+    end = datetime.fromtimestamp(end_ts, tz=datetime_timezone.utc)
+    return start, end
 
 
 def generate_token_key(session_id: str, token: str) -> str:
     return f"att:{session_id}:token:{token}"
 
 
-def generate_token_for_checkpoint(attendance_session: AttendanceSession, checkpoint) -> dict:
+def generate_token_for_checkpoint(attendance_session: AttendanceSession, checkpoint, version=1) -> dict:
     """Create a single fresh short-lived token for one checkpoint (FR-043)."""
+    if version == TOKEN_V2:
+        return {
+            "checkpoint_id": str(checkpoint.id),
+            "checkpoint_number": checkpoint.checkpoint_number,
+            "token": generate_hmac_token(attendance_session, checkpoint.id),
+        }
     token = secrets.token_urlsafe(32)
     value = json.dumps({
         "attendance_session_id": str(attendance_session.id),
@@ -42,13 +204,19 @@ def generate_token_for_checkpoint(attendance_session: AttendanceSession, checkpo
     }
 
 
-def generate_session_token(attendance_session: AttendanceSession) -> dict:
+def generate_session_token(attendance_session: AttendanceSession, version=1) -> dict:
     """Create a single networked QR token for the whole session (projector mode).
 
     Not tied to any student station; scans against it are regular QR_SCAN
     entries earning standard scan points (BR-035 fallback when no stations
     have been selected yet).
     """
+    if version == TOKEN_V2:
+        return {
+            "checkpoint_id": None,
+            "checkpoint_number": 0,
+            "token": generate_hmac_token(attendance_session),
+        }
     token = secrets.token_urlsafe(32)
     value = json.dumps({
         "attendance_session_id": str(attendance_session.id),
@@ -65,7 +233,7 @@ def generate_session_token(attendance_session: AttendanceSession) -> dict:
     }
 
 
-def generate_tokens_for_session(attendance_session: AttendanceSession):
+def generate_tokens_for_session(attendance_session: AttendanceSession, checkpoints=None, version=1):
     """Generate cryptographically random tokens for each checkpoint (FR-042).
 
     Each token is short-lived (BR-035, default 10 seconds) and rotated by
@@ -75,11 +243,12 @@ def generate_tokens_for_session(attendance_session: AttendanceSession):
     In projector mode (or before any stations are selected) a single
     session-level token is returned instead.
     """
-    checkpoints = list(attendance_session.checkpoints.select_related("student").all())
+    if checkpoints is None:
+        checkpoints = list(attendance_session.checkpoints.select_related("student").all())
     if not checkpoints or attendance_session.mode == AttendanceSession.SessionMode.PROJECTOR:
-        tokens = [generate_session_token(attendance_session)]
+        tokens = [generate_session_token(attendance_session, version=version)]
     else:
-        tokens = [generate_token_for_checkpoint(attendance_session, cp) for cp in checkpoints]
+        tokens = [generate_token_for_checkpoint(attendance_session, cp, version=version) for cp in checkpoints]
     return {
         "expires_in_seconds": TOKEN_TTL,
         "tokens": tokens,
@@ -91,6 +260,19 @@ def validate_and_record_scan(token: str, requesting_user) -> dict:
 
     Returns a dict with status info and HTTP status code.
     """
+    if decode_token_version(token) == TOKEN_V2:
+        try:
+            claims = verify_hmac_token(token)
+        except TokenVerificationError:
+            return {"success": False, "error_code": "TOKEN_INVALID", "message": "Invalid QR code.", "http_status": 400}
+        from .offline import record_v2_scan
+
+        with transaction.atomic():
+            session = AttendanceSession.objects.select_for_update().filter(id=claims["session_id"]).first()
+            if session is None:
+                return {"success": False, "error_code": "TOKEN_INVALID", "message": "Invalid QR code.", "http_status": 400}
+            return record_v2_scan(session, requesting_user, claims)
+
     key = None
     matched_session_id = None
     token_data = None
@@ -156,7 +338,7 @@ def validate_and_record_scan(token: str, requesting_user) -> dict:
         checkpoint = None
         if checkpoint_id:
             checkpoint = AttendanceCheckpoint.objects.select_for_update().select_related("student").filter(
-                id=checkpoint_id
+                id=checkpoint_id, attendance_session=session,
             ).first()
             if checkpoint is None:
                 return {"success": False, "error_code": "TOKEN_INVALID", "message": "Invalid QR code.", "http_status": 400}
