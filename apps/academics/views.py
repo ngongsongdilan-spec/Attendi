@@ -28,6 +28,7 @@ from .models import (
     Enrollment,
     Faculty,
 )
+from .services import enroll_cohort
 from .serializers import (
     SemesterSerializer,
     ClassDefinitionSerializer,
@@ -250,9 +251,17 @@ class CourseOfferingDetailView(APIView):
                 User, id=lecturer_id, role="LECTURER", is_active=True, status=User.Status.ACTIVE
             )
 
-        previous_lecturer_id = offering.lecturer_id
-        offering.lecturer = lecturer
-        offering.save(update_fields=["lecturer", "updated_at"])
+        # Assigning a lecturer must hand them a ready-to-use classroom: the
+        # offering is theirs (so it shows on their panel and attendance works),
+        # and an empty offering is primed with its cohort so there are students
+        # to mark. Locked so a concurrent assignment cannot double-enroll.
+        with transaction.atomic():
+            offering = CourseOffering.objects.select_for_update().get(id=offering_id)
+            previous_lecturer_id = offering.lecturer_id
+            offering.lecturer = lecturer
+            offering.save(update_fields=["lecturer", "updated_at"])
+            if lecturer is not None and not Enrollment.objects.filter(course_offering=offering).exists():
+                enroll_cohort(offering)
         audit(
             user=request.user,
             action="COURSE_LECTURER_ASSIGNED",
@@ -595,10 +604,23 @@ class LecturerMyCoursesView(APIView):
 
     def get(self, request):
         active_semester = Semester.objects.filter(is_active=True).first()
-        qs = CourseOffering.objects.select_related("course", "department", "semester")
-        qs = qs.filter(lecturer=request.user)
-        if active_semester:
-            qs = qs.filter(semester=active_semester)
+        # A lecturer always sees every offering assigned to them. Filtering to
+        # the active semester used to hide a course the admin had just assigned
+        # (when the offering sits in another semester) and left the lecturer
+        # with an empty classroom list and no way to take attendance. Active
+        # offerings are ordered first so the current term stays on top.
+        qs = (
+            CourseOffering.objects.select_related("course", "department", "semester")
+            .filter(lecturer=request.user)
+            .order_by(
+                db_models.Case(
+                    db_models.When(semester=active_semester, then=0),
+                    default=1,
+                    output_field=db_models.IntegerField(),
+                ),
+                "course__code",
+            )
+        )
         result = []
         for off in qs:
             schedules = off.schedules.filter(is_active=True)
@@ -617,6 +639,7 @@ class LecturerMyCoursesView(APIView):
                 "course_title": off.course.title,
                 "department": off.department.name if off.department else "",
                 "semester": off.semester.name,
+                "is_active_semester": bool(active_semester and off.semester_id == active_semester.id),
                 "lecturer_name": off.lecturer.get_full_name() if off.lecturer else "",
                 "materials_count": off.materials.count(),
                 "announcements_count": off.announcements.count(),
