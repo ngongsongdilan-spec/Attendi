@@ -17,12 +17,13 @@ decided in exactly one place. The rules:
 from django.db import models as db_models
 
 from apps.core.permissions import ADMIN_ROLES, STAFF_ROLES
+from apps.core.scoping import can_administer_offering, is_admin as has_admin_scope, scope_by_department
 
 from .models import ClassDelegate, Project, ProjectGroup, ProjectMember
 
 
-def is_admin(user):
-    return user.is_authenticated and user.role in ADMIN_ROLES
+def is_admin(user, project):
+    return has_admin_scope(user) and can_administer_offering(user, project.course_offering)
 
 
 def is_staff(user):
@@ -93,9 +94,10 @@ def can_view_project(user, project):
     """May the user open this project at all?"""
     if not user.is_authenticated:
         return False
+    if user.role in ADMIN_ROLES:
+        return is_admin(user, project)
     return (
-        is_admin(user)
-        or is_supervisor(user, project)
+        is_supervisor(user, project)
         or is_offering_lecturer(user, project)
         or is_class_delegate(user, project)
         or is_member(user, project)
@@ -106,7 +108,9 @@ def can_manage_project(user, project):
     """May the user edit project settings, tasks, milestones and grades?"""
     if not user.is_authenticated:
         return False
-    return is_admin(user) or is_supervisor(user, project) or is_offering_lecturer(user, project)
+    if user.role in ADMIN_ROLES:
+        return is_admin(user, project)
+    return is_supervisor(user, project) or is_offering_lecturer(user, project)
 
 
 def can_manage_groups(user, project):
@@ -131,7 +135,9 @@ def can_view_group_report(user, project, group):
     """
     if not user.is_authenticated:
         return False
-    if is_admin(user) or is_supervisor(user, project) or is_offering_lecturer(user, project):
+    if user.role in ADMIN_ROLES:
+        return is_admin(user, project)
+    if is_admin(user, project) or is_supervisor(user, project) or is_offering_lecturer(user, project):
         return True
     return project.scope == Project.Scope.CLASS_WIDE and is_class_delegate(user, project)
 
@@ -202,7 +208,9 @@ def can_view_task_list(user, project):
 
 def can_record_assessment(user, project):
     """Only staff may create assessment components and enter scores."""
-    return is_admin(user) or is_supervisor(user, project) or is_offering_lecturer(user, project)
+    if user.is_authenticated and user.role in ADMIN_ROLES:
+        return is_admin(user, project)
+    return is_admin(user, project) or is_supervisor(user, project) or is_offering_lecturer(user, project)
 
 
 def visible_projects(user):
@@ -213,7 +221,7 @@ def visible_projects(user):
     if not user.is_authenticated:
         return qs.none()
     if user.role in ADMIN_ROLES:
-        return qs
+        return scope_by_department(qs, user, "course_offering__department")
     if user.role == "LECTURER":
         return qs.filter(
             db_models.Q(supervisor=user)

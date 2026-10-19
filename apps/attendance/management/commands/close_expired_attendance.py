@@ -4,6 +4,7 @@ Run from cron/Celery-beat. Sessions whose window has elapsed are lazily
 marked EXPIRED by the system so scans can never land on a stale session.
 """
 from django.core.management.base import BaseCommand
+from django.db.models import F
 from django.utils import timezone
 
 from apps.attendance.models import AttendanceSession
@@ -19,5 +20,8 @@ class Command(BaseCommand):
             expires_at__lte=now,
         )
         count = queryset.count()
-        queryset.update(status=AttendanceSession.Status.EXPIRED)
+        queryset.update(
+            status=AttendanceSession.Status.EXPIRED,
+            effective_end_at=F("expires_at"),
+        )
         self.stdout.write(self.style.SUCCESS(f"Closed {count} expired attendance session(s)."))
