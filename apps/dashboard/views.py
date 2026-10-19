@@ -15,6 +15,7 @@ from apps.announcements.models import Announcement
 from apps.attendance.models import AttendanceRecord, AttendanceSession
 from apps.accounts.models import User
 from apps.projects.models import Project, ProjectTask
+from apps.core.scoping import scope_by_department, scope_users
 
 
 class DashboardView(APIView):
@@ -221,24 +222,31 @@ class DashboardView(APIView):
         }
 
     def _admin_dashboard(self, user):
-        active_projects = Project.objects.filter(status="ACTIVE")
+        users = scope_users(User.objects.all(), user)
+        active_projects = scope_by_department(
+            Project.objects.filter(status="ACTIVE"), user, "course_offering__department",
+        )
+        pending_tasks = scope_by_department(
+            ProjectTask.objects.filter(status__in=["TODO", "IN_PROGRESS"]),
+            user, "project__course_offering__department",
+        )
         return {
             "role": user.role,
             "greeting": f"Good day, {user.first_name}",
             "stats": {
-                "total_users": User.objects.count(),
-                "total_students": User.objects.filter(role="STUDENT").count(),
-                "total_lecturers": User.objects.filter(role="LECTURER").count(),
+                "total_users": users.count(),
+                "total_students": users.filter(role="STUDENT").count(),
+                "total_lecturers": users.filter(role="LECTURER").count(),
                 "active_projects": active_projects.count(),
-                "pending_tasks": ProjectTask.objects.filter(status__in=["TODO", "IN_PROGRESS"]).count(),
+                "pending_tasks": pending_tasks.count(),
             },
             "attendance": self._attendance_for(
-                User.objects.filter(role="STUDENT").values_list("id", flat=True)
+                users.filter(role="STUDENT").values_list("id", flat=True)
             ),
             # Kept flat as well because the admin dashboard predates `stats`.
-            "total_users": User.objects.count(),
-            "total_students": User.objects.filter(role="STUDENT").count(),
-            "total_lecturers": User.objects.filter(role="LECTURER").count(),
+            "total_users": users.count(),
+            "total_students": users.filter(role="STUDENT").count(),
+            "total_lecturers": users.filter(role="LECTURER").count(),
             "active_projects": [
                 {"id": str(p.id), "title": p.title, "status": p.status}
                 for p in active_projects.select_related("course_offering__course")[:10]
@@ -252,8 +260,6 @@ class DashboardView(APIView):
                     "priority": t.priority,
                     "due_at": t.due_at.isoformat() if t.due_at else None,
                 }
-                for t in ProjectTask.objects.filter(status__in=["TODO", "IN_PROGRESS"])
-                .select_related("project")
-                .order_by("due_at")[:10]
+                for t in pending_tasks.select_related("project").order_by("due_at")[:10]
             ],
         }

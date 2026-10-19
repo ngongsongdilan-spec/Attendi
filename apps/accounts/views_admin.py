@@ -20,8 +20,10 @@ from rest_framework.views import APIView
 
 from apps.academics.models import Department
 from apps.audit.services import audit
+from apps.core.scoping import can_administer_department, is_admin
 
 from .models import StudentProfile, User
+from .serializers import AdminAccountCreateSerializer, AdminAssignmentSerializer, MeSerializer
 
 TEMP_PASSWORD_LENGTH = 8
 
@@ -29,6 +31,67 @@ TEMP_PASSWORD_LENGTH = 8
 def generate_temp_password():
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(TEMP_PASSWORD_LENGTH))
+
+
+class AdminAccountListView(APIView):
+    """System-admin-only creation and listing of scoped admin accounts."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role != User.Role.SYSTEM_ADMIN:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        users = User.objects.filter(role__in=[
+            User.Role.SYSTEM_ADMIN, User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN,
+        ]).select_related("admin_faculty", "admin_department__faculty").order_by("email")
+        return Response(MeSerializer(users, many=True).data)
+
+    def post(self, request):
+        if request.user.role != User.Role.SYSTEM_ADMIN:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        serializer = AdminAccountCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        values = serializer.validated_data
+        temporary_password = secrets.token_urlsafe(18)
+        user = User.objects.create_user(
+            email=values["email"], password=temporary_password,
+            first_name=values["first_name"], last_name=values["last_name"],
+            role=values["role"], admin_faculty=values.get("admin_faculty"),
+            admin_department=values.get("admin_department"), must_change_password=True,
+        )
+        audit(user=request.user, action="ADMIN_ACCOUNT_CREATED", resource_type="User",
+              resource_id=user.id, request=request, metadata={"role": user.role})
+        return Response({"user": MeSerializer(user).data, "temporary_password": temporary_password},
+                        status=status.HTTP_201_CREATED)
+
+
+class AdminAccountAssignView(APIView):
+    """Promote an existing account or change an admin's academic scope."""
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, user_id):
+        if request.user.role != User.Role.SYSTEM_ADMIN:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        from django.shortcuts import get_object_or_404
+
+        user = get_object_or_404(User, id=user_id)
+        if user.role == User.Role.SYSTEM_ADMIN:
+            return Response({"error": "System admin accounts cannot be reassigned here."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        serializer = AdminAssignmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        values = serializer.validated_data
+        old_role = user.role
+        user.role = values["role"]
+        user.admin_faculty = values.get("admin_faculty")
+        user.admin_department = values.get("admin_department")
+        user.full_clean()
+        user.save(update_fields=["role", "admin_faculty", "admin_department", "updated_at"])
+        audit(user=request.user, action="ADMIN_SCOPE_ASSIGNED", resource_type="User",
+              resource_id=user.id, request=request,
+              metadata={"old_role": old_role, "new_role": user.role})
+        return Response(MeSerializer(user).data)
 
 
 class RosterUploadView(APIView):
@@ -43,7 +106,7 @@ class RosterUploadView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        if request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}:
+        if not is_admin(request.user):
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Only administrators can upload rosters."}},
                 status=status.HTTP_403_FORBIDDEN,
@@ -102,12 +165,22 @@ class RosterUploadView(APIView):
                 if dept_code and department is None:
                     errors.append({"line": i, "matricule": matricule, "error": f"Unknown department code '{dept_code}'."})
                     continue
+                if not can_administer_department(request.user, department):
+                    errors.append({"line": i, "matricule": matricule, "error": "Department is outside your admin scope."})
+                    continue
 
                 if User.objects.filter(email__iexact=email).exists():
                     user = User.objects.filter(email__iexact=email).first()
                     profile = getattr(user, "student_profile", None)
                     if profile:
-                        profile.student_number = profile.student_number or matricule
+                        if not profile.student_number:
+                            # Never steal a matricule owned by another account:
+                            # the DB unique index would abort the whole upload
+                            # as a 500 instead of failing this one row.
+                            if StudentProfile.objects.filter(student_number__iexact=matricule).exists():
+                                errors.append({"line": i, "matricule": matricule, "error": "Matricule already belongs to another account."})
+                                continue
+                            profile.student_number = matricule
                         profile.level = level or profile.level
                         if department:
                             profile.department = department
@@ -118,7 +191,7 @@ class RosterUploadView(APIView):
                     updated_rows.append({"email": email, "matricule": matricule})
                     continue
 
-                if StudentProfile.objects.filter(student_number=matricule).exists():
+                if StudentProfile.objects.filter(student_number__iexact=matricule).exists():
                     errors.append({"line": i, "matricule": matricule, "error": "Matricule already belongs to another account."})
                     continue
 
