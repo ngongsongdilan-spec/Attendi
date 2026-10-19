@@ -5,9 +5,11 @@ Environment-driven configuration (12-factor). Secrets are never committed.
 """
 import os
 import sys
+import hashlib
 from datetime import timedelta
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -197,6 +199,11 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Production requires a *shared* cache (enforced by apps/core/checks.py).
 # ---------------------------------------------------------------------------
 REDIS_URL = env("REDIS_URL", "")
+REQUIRE_REDIS_FOR_TRAFFIC = IS_PRODUCTION or env_bool("REQUIRE_REDIS_FOR_TRAFFIC", False)
+if REQUIRE_REDIS_FOR_TRAFFIC and not REDIS_URL:
+    raise ImproperlyConfigured(
+        "REDIS_URL is required for attendance traffic; refusing database or per-worker cache fallback."
+    )
 if REDIS_URL:
     CACHES = {
         "default": {
@@ -224,6 +231,20 @@ else:
             "LOCATION": "fet-attendance",
         }
     }
+
+# Read-only polling limits use a separate cache. Never use DatabaseCache for
+# these counters: every rejected poll would otherwise still hit PostgreSQL.
+# Redis makes limits shared across AWS workers; local memory is a useful
+# per-worker backstop for development and existing deployments without Redis.
+CACHES["polling"] = (
+    {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_URL,
+        "OPTIONS": {"socket_connect_timeout": 2, "socket_timeout": 2},
+    }
+    if REDIS_URL else
+    {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "fet-polling"}
+)
 
 # ---------------------------------------------------------------------------
 # Security (HTTPS, cookies, headers). Enforced when DJANGO_DEBUG is false.
@@ -284,6 +305,12 @@ REST_FRAMEWORK = {
         "attendance_scan": "60/minute",      # per-user scan cap
         "attendance_start": "10/minute",     # launching sessions
         "attendance_admin": "20/minute",     # tokens, checkpoints, corrections
+        # Separate read limits keep refresh loops from consuming the write quota.
+        "attendance_station_poll": env("ATTENDANCE_STATION_POLL_RATE", "12/minute"),
+        "attendance_live_poll": env("ATTENDANCE_LIVE_POLL_RATE", "30/minute"),
+        "attendance_history_poll": env("ATTENDANCE_HISTORY_POLL_RATE", "12/minute"),
+        "attendance_station_token": env("ATTENDANCE_STATION_TOKEN_RATE", "12/minute"),
+        "attendance_sync": env("ATTENDANCE_SYNC_RATE", "30/minute"),
     },
 }
 
@@ -304,6 +331,12 @@ COOKIE_MAX_AGE_REFRESH = env_int("REFRESH_TOKEN_DAYS", 7) * 24 * 60 * 60
 
 # Attendance configuration (Business Rules BR-035 / BR-036 - configurable)
 ATTENDANCE_TOKEN_TTL_SECONDS = env_int("ATTENDANCE_TOKEN_TTL_SECONDS", 10)
+ATTENDANCE_TOKEN_VERSION = env_int("ATTENDANCE_TOKEN_VERSION", 2)
+ATTENDANCE_TOKEN_HMAC_KEY = env("ATTENDANCE_TOKEN_HMAC_KEY", "") or (
+    hashlib.sha256(f"fet-attendance-dev:{SECRET_KEY}".encode()).hexdigest() if DEBUG else ""
+)
+ATTENDANCE_OFFLINE_GRACE_SECONDS = env_int("ATTENDANCE_OFFLINE_GRACE_SECONDS", 86400)
+ATTENDANCE_OFFLINE_SYNC_MAX_CAPTURES = env_int("ATTENDANCE_OFFLINE_SYNC_MAX_CAPTURES", 100)
 ATTENDANCE_SESSION_DEFAULT_SECONDS = env_int("ATTENDANCE_SESSION_SECONDS", 300)
 ATTENDANCE_SESSION_MAX_SECONDS = env_int("ATTENDANCE_SESSION_MAX_SECONDS", 600)
 ATTENDANCE_MAX_CHECKPOINTS = env_int("ATTENDANCE_MAX_CHECKPOINTS", 10)

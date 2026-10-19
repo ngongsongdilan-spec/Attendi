@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 from apps.accounts.models import StudentProfile, User
 from apps.audit.services import audit
 from apps.core.permissions import ADMIN_ROLES
+from apps.core.scoping import can_administer_offering
 
 from . import permissions as perms
 from . import services
@@ -97,6 +98,10 @@ class ProjectListView(APIView):
             return perms.forbid("Only staff can create projects.")
         s = ProjectSerializer(data=request.data)
         s.is_valid(raise_exception=True)
+        offering = s.validated_data["course_offering"]
+        if request.user.role in ADMIN_ROLES:
+            if not can_administer_offering(request.user, offering):
+                return perms.forbid("That course is outside your admin scope.")
         project = s.save(created_by=request.user, supervisor=request.user)
 
         # A project assigned to a group must not point at its own group, and the
@@ -142,6 +147,9 @@ class ProjectDetailView(APIView):
             return denied
         s = ProjectSerializer(project, data=request.data, partial=True)
         s.is_valid(raise_exception=True)
+        offering = s.validated_data.get("course_offering", project.course_offering)
+        if request.user.role in ADMIN_ROLES and not can_administer_offering(request.user, offering):
+            return perms.forbid("That course is outside your admin scope.")
         s.save()
         return Response(s.data)
 
@@ -691,7 +699,7 @@ class OfferingGroupsView(APIView):
         from apps.academics.models import CourseOffering
 
         offering = get_object_or_404(CourseOffering, id=offering_id)
-        if not (request.user.role in ADMIN_ROLES or offering.lecturer_id == request.user.id):
+        if not (can_administer_offering(request.user, offering) or offering.lecturer_id == request.user.id):
             return perms.forbid("Only the course lecturer or an admin can list the groups of this course.")
         groups = (
             ProjectGroup.objects.filter(project__course_offering=offering)
@@ -749,7 +757,7 @@ class ClassDelegateView(APIView):
     @staticmethod
     def _may_appoint(request, offering):
         return (
-            request.user.role in ADMIN_ROLES
+            can_administer_offering(request.user, offering)
             or offering.lecturer_id == request.user.id
         )
 
@@ -822,7 +830,7 @@ class OfferingDelegateCandidatesView(APIView):
         from apps.academics.models import CourseOffering
 
         offering = get_object_or_404(CourseOffering, id=offering_id)
-        if not (request.user.role in ADMIN_ROLES or offering.lecturer_id == request.user.id):
+        if not (can_administer_offering(request.user, offering) or offering.lecturer_id == request.user.id):
             return perms.forbid("Only the course lecturer or an admin can pick a delegate.")
         students = (
             User.objects.filter(role="STUDENT")

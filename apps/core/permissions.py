@@ -5,6 +5,8 @@ never a security mechanism (doc 02 §30).
 """
 from rest_framework.permissions import BasePermission
 
+from .scoping import is_admin
+
 ADMIN_ROLES = {"DEPARTMENT_ADMIN", "FACULTY_ADMIN", "SYSTEM_ADMIN"}
 STAFF_ROLES = {"LECTURER"} | ADMIN_ROLES
 
@@ -21,12 +23,12 @@ class IsLecturer(BasePermission):
 
 class IsLecturerOrAdmin(BasePermission):
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role in STAFF_ROLES
+        return request.user.is_authenticated and (request.user.role == "LECTURER" or is_admin(request.user))
 
 
 class IsAdmin(BasePermission):
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role in ADMIN_ROLES
+        return is_admin(request.user)
 
 
 class IsSystemAdmin(BasePermission):
