@@ -27,6 +27,7 @@ class AttendanceSession(TimeStampedUUIDModel):
     lecturer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="attendance_sessions")
     started_at = models.DateTimeField(default=timezone.now)
     expires_at = models.DateTimeField(db_index=True)
+    effective_end_at = models.DateTimeField(null=True, blank=True, db_index=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE, db_index=True)
     mode = models.CharField(max_length=20, choices=SessionMode.choices, default=SessionMode.STATIONS)
     expected_headcount = models.PositiveIntegerField(null=True, blank=True, default=None,
@@ -41,7 +42,21 @@ class AttendanceSession(TimeStampedUUIDModel):
 
     @property
     def is_active(self):
-        return self.status == self.Status.ACTIVE and self.expires_at > timezone.now()
+        return self.status == self.Status.ACTIVE and self.effective_end > timezone.now()
+
+    @property
+    def effective_end(self):
+        return min(self.effective_end_at, self.expires_at) if self.effective_end_at else self.expires_at
+
+    def save(self, *args, **kwargs):
+        if self.effective_end_at is None and self.status in {self.Status.CLOSED, self.Status.EXPIRED}:
+            self.effective_end_at = (
+                min(timezone.now(), self.expires_at)
+                if self.status == self.Status.CLOSED else self.expires_at
+            )
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = set(kwargs["update_fields"]) | {"effective_end_at"}
+        super().save(*args, **kwargs)
 
     @property
     def course_offering(self):
@@ -92,6 +107,10 @@ class AttendanceRecord(TimeStampedUUIDModel):
     recorded_at = models.DateTimeField(default=timezone.now)
     verification_method = models.CharField(max_length=20, choices=VerificationMethod.choices, default=VerificationMethod.QR_SCAN)
     status = models.CharField(max_length=20, default="PRESENT")
+    offline_idempotency_key = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    capture_slot_index = models.PositiveIntegerField(null=True, blank=True)
+    capture_verified_at = models.DateTimeField(null=True, blank=True)
+    sync_batch_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         ordering = ["-recorded_at"]

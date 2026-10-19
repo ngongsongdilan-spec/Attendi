@@ -10,6 +10,7 @@ import http.cookies
 from django.conf import settings
 from django.utils.crypto import get_random_string
 from rest_framework.request import Request
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.authentication import JWTAuthentication as BaseJWTAuth
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -126,6 +127,14 @@ def get_token_pair_for_user(user):
 
 class CookieJWTAuthentication(BaseJWTAuth):
     """Read JWT from Authorization header first, then from httpOnly cookie."""
+
+    def get_user(self, validated_token):
+        user = super().get_user(validated_token)
+        from apps.core.scoping import is_admin
+
+        if user.role in {"FACULTY_ADMIN", "DEPARTMENT_ADMIN"} and not is_admin(user):
+            raise AuthenticationFailed("Your admin account needs a faculty or department assignment.")
+        return user
 
     def authenticate(self, request: Request):
         auth = super().authenticate(request)

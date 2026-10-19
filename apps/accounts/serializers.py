@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from apps.academics.models import Department, Faculty
+
 from .models import LecturerProfile, StudentProfile, User
 
 
@@ -41,6 +43,40 @@ class RegisterSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         return User.objects.create_user(**validated_data)
+
+
+class AdminAssignmentSerializer(serializers.Serializer):
+    """A system admin selects the role and its required academic boundary."""
+
+    role = serializers.ChoiceField(choices=[User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN])
+    faculty_id = serializers.PrimaryKeyRelatedField(
+        source="admin_faculty", queryset=Faculty.objects.all(), required=False, allow_null=True,
+    )
+    department_id = serializers.PrimaryKeyRelatedField(
+        source="admin_department", queryset=Department.objects.all(), required=False, allow_null=True,
+    )
+
+    def validate(self, attrs):
+        role = attrs["role"]
+        faculty = attrs.get("admin_faculty")
+        department = attrs.get("admin_department")
+        if role == User.Role.FACULTY_ADMIN and (faculty is None or department is not None):
+            raise serializers.ValidationError("A faculty admin needs one faculty and no department.")
+        if role == User.Role.DEPARTMENT_ADMIN and (department is None or faculty is not None):
+            raise serializers.ValidationError("A department admin needs one department and no faculty.")
+        return attrs
+
+
+class AdminAccountCreateSerializer(AdminAssignmentSerializer):
+    email = serializers.EmailField()
+    first_name = serializers.CharField(max_length=100)
+    last_name = serializers.CharField(max_length=100)
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("This email already has an account. Assign its role instead.")
+        return value
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +128,12 @@ class SelfRegisterSerializer(serializers.Serializer):
             raise serializers.ValidationError("Level must be one of: L200, L300, L400, L500.")
         return value
 
+    def validate_department(self, value):
+        department = Department.objects.filter(id=value).first()
+        if department is None:
+            raise serializers.ValidationError("Unknown department.")
+        return department
+
     def validate(self, attrs):
         if attrs["password"] != attrs["password_confirm"]:
             raise serializers.ValidationError({"password_confirm": "Passwords do not match."})
@@ -99,8 +141,14 @@ class SelfRegisterSerializer(serializers.Serializer):
         role = attrs.get("role")
 
         if role == "STUDENT":
-            if not attrs.get("matricule", "").strip():
+            matricule = (attrs.get("matricule") or "").strip()
+            if not matricule:
                 raise serializers.ValidationError({"matricule": "Matricule number is required for students."})
+            # Login matches matricules case-insensitively, so uniqueness must
+            # be checked the same way - otherwise the DB unique index would
+            # reject the save as an unhandled IntegrityError (HTTP 500).
+            if StudentProfile.objects.filter(student_number__iexact=matricule).exists():
+                raise serializers.ValidationError({"matricule": "This matricule is already registered."})
             personal_email = (attrs.get("personal_email") or "").strip()
             if not personal_email:
                 raise serializers.ValidationError({"personal_email": "Personal email is required for students."})
@@ -110,14 +158,12 @@ class SelfRegisterSerializer(serializers.Serializer):
         return attrs
 
     def create(self, validated_data):
-        from apps.academics.models import Department
-
         role = validated_data.pop("role")
         matricule = validated_data.pop("matricule", "").strip()
         staff_number = validated_data.pop("staff_number", "").strip()
         level = validated_data.pop("level", "").strip()
         personal_email = validated_data.pop("personal_email", None) or None
-        department_id = validated_data.pop("department")
+        department = validated_data.pop("department")  # resolved in validate_department()
         date_of_birth = validated_data.pop("date_of_birth", None)
         validated_data.pop("password_confirm")
 
@@ -129,8 +175,6 @@ class SelfRegisterSerializer(serializers.Serializer):
             role=role,
             date_of_birth=date_of_birth,
         )
-
-        department = Department.objects.filter(id=department_id).first()
 
         if role == "STUDENT":
             StudentProfile.objects.create(
@@ -153,6 +197,7 @@ class MeSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
     student_profile = serializers.SerializerMethodField()
     lecturer_profile = serializers.SerializerMethodField()
+    admin_scope = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -168,6 +213,7 @@ class MeSerializer(serializers.ModelSerializer):
             "must_change_password",
             "student_profile",
             "lecturer_profile",
+            "admin_scope",
             "created_at",
             "updated_at",
         ]
@@ -175,6 +221,18 @@ class MeSerializer(serializers.ModelSerializer):
 
     def get_full_name(self, obj):
         return obj.get_full_name()
+
+    def get_admin_scope(self, obj):
+        if obj.role == User.Role.FACULTY_ADMIN and obj.admin_faculty_id:
+            return {"faculty_id": str(obj.admin_faculty_id), "faculty_name": obj.admin_faculty.name}
+        if obj.role == User.Role.DEPARTMENT_ADMIN and obj.admin_department_id:
+            return {
+                "faculty_id": str(obj.admin_department.faculty_id),
+                "faculty_name": obj.admin_department.faculty.name,
+                "department_id": str(obj.admin_department_id),
+                "department_name": obj.admin_department.name,
+            }
+        return None
 
     def get_student_profile(self, obj):
         profile = getattr(obj, "student_profile", None)

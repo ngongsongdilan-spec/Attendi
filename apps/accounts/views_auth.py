@@ -39,7 +39,7 @@ class RegisterView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        if request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}:
+        if request.user.role != User.Role.SYSTEM_ADMIN:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Only administrators can create accounts."}},
                 status=status.HTTP_403_FORBIDDEN,
@@ -159,6 +159,12 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if user is None:
+            # Hash the supplied password even when no account matched, exactly
+            # as Django's ModelBackend does: without it, a missing email or
+            # matricule returns measurably faster and the timing difference
+            # can be used to enumerate registered accounts.
+            User().set_password(password)
         if user is None or not check_password(password, user.password):
             return Response(
                 {"success": False, "error": {"code": "UNAUTHENTICATED", "message": "Invalid credentials."}},
@@ -167,6 +173,12 @@ class LoginView(APIView):
         if not user.is_active or user.status != User.Status.ACTIVE:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Your account is not active."}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        from apps.core.scoping import is_admin
+        if user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not is_admin(user):
+            return Response(
+                {"success": False, "error": {"code": "ADMIN_SCOPE_REQUIRED", "message": "Ask a system admin to assign your faculty or department."}},
                 status=status.HTTP_403_FORBIDDEN,
             )
         user.record_login()
@@ -265,20 +277,34 @@ class MeView(APIView):
 
 
 class ForgotPasswordView(APIView):
+    """POST /api/v1/auth/forgot-password/
+
+    Password reset is not implemented yet (no mailer is wired up). This
+    endpoint used to report success while doing nothing, which was both
+    misleading and a false security signal - it now says so honestly.
+    """
+
     permission_classes = [AllowAny]
 
     def post(self, request):
         return Response(
-            {"success": True, "data": {"message": "If an account with that email exists, a reset link has been sent."}},
-            status=status.HTTP_200_OK,
+            {"success": False, "error": {"code": "NOT_IMPLEMENTED",
+             "message": "Password reset is not available yet. Contact your administrator."}},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
         )
 
 
 class ResetPasswordView(APIView):
+    """POST /api/v1/auth/reset-password/
+
+    No reset tokens are ever issued yet, so nothing can be consumed here.
+    """
+
     permission_classes = [AllowAny]
 
     def post(self, request):
         return Response(
-            {"success": True, "data": {"message": "Password reset is not yet implemented. Contact your administrator."}},
-            status=status.HTTP_200_OK,
+            {"success": False, "error": {"code": "NOT_IMPLEMENTED",
+             "message": "Password reset is not available yet. Contact your administrator."}},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
         )

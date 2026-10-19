@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from apps.core.scoping import can_manage_announcement
 
 from .models import Announcement, AnnouncementRead
 
@@ -84,6 +85,4 @@ class AnnouncementSerializer(serializers.ModelSerializer):
         user = self._user()
         if not user or not user.is_authenticated:
             return False
-        return obj.created_by_id == user.id or user.role in {
-            "SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"
-        }
+        return can_manage_announcement(user, obj)

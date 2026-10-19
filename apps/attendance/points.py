@@ -54,9 +54,9 @@ def _notify_points(user, title, message, session=None, ntype="ATTENDANCE"):
         pass  # notifications must never break attendance
 
 
-def _celebrate(user, base: int, category: str, session=None) -> int:
+def _celebrate(user, base: int, category: str, session=None, when=None) -> int:
     """Apply the special-day multiplier, persist nothing, and return final points."""
-    special = is_special_day(user)
+    special = is_special_day(user, when=when)
     final = base * SPECIAL_DAY_MULTIPLIER if special else base
     course = ""
     if session is not None:
@@ -112,7 +112,7 @@ def is_special_day(user, when=None) -> bool:
     dob = getattr(user, "date_of_birth", None)
     if dob is None:
         return False
-    when = when or timezone.localtime()
+    when = timezone.localtime(when) if when is not None else timezone.localtime()
     try:
         return (when.month, when.day) == (dob.month, dob.day)
     except ValueError:  # e.g. Feb 29 in a non-leap year
@@ -140,6 +140,7 @@ def attendance_rate_for_students(offering, student_ids):
     return {sid: counts.get(sid, 0) / total_sessions for sid in student_ids}
 
 
+@transaction.atomic
 def auto_select_stations(attendance_session: AttendanceSession, count: int = 3):
     """Pick stations ONLY from students verified present in THIS session (FR-047).
 
@@ -154,6 +155,9 @@ def auto_select_stations(attendance_session: AttendanceSession, count: int = 3):
     each earn bonus points - so they share the QR wisely, not just with
     their closest friends.
     """
+    # Row-lock the session so concurrent requests cannot all pass the cap
+    # check and over-create stations (or collide on checkpoint numbers).
+    attendance_session = AttendanceSession.objects.select_for_update().get(id=attendance_session.id)
     existing_auto = attendance_session.checkpoints.filter(
         selection_method=AttendanceCheckpoint.SelectionMethod.AUTO
     ).count()
@@ -204,7 +208,7 @@ def auto_select_stations(attendance_session: AttendanceSession, count: int = 3):
 
 
 @transaction.atomic
-def award_station_points(attendance_session: AttendanceSession, checkpoint: AttendanceCheckpoint):
+def award_station_points(attendance_session: AttendanceSession, checkpoint: AttendanceCheckpoint, when=None):
     """On first successful scan at a station, confirm the station student
     present and award their points (FR-048).
 
@@ -230,7 +234,7 @@ def award_station_points(attendance_session: AttendanceSession, checkpoint: Atte
         },
     )
     base = POINTS["AUTO_STATION" if is_auto else "TEACHER_STATION"]
-    final = _celebrate(checkpoint.student, base, category, session=attendance_session)
+    final = _celebrate(checkpoint.student, base, category, session=attendance_session, when=when)
     PointsLedger.objects.create(
         student=checkpoint.student,
         attendance_session=attendance_session,
@@ -240,14 +244,17 @@ def award_station_points(attendance_session: AttendanceSession, checkpoint: Atte
 
 
 @transaction.atomic
-def award_scan_points(attendance_session: AttendanceSession, student, checkpoint=None) -> int:
+def award_scan_points(attendance_session: AttendanceSession, student, checkpoint=None, when=None) -> int:
     """Scanner points: 5 at a student station (bonus), 3 at the projector.
     Doubled on the student's birthday."""
     if PointsLedger.objects.filter(student=student, attendance_session=attendance_session).exists():
         return 0
     at_station = checkpoint is not None and checkpoint.student.role == "STUDENT"
     category = PointsLedger.Category.STATION_SCAN if at_station else PointsLedger.Category.SCAN
-    points = _celebrate(student, POINTS["STATION_SCAN" if at_station else "SCAN"], category, session=attendance_session)
+    points = _celebrate(
+        student, POINTS["STATION_SCAN" if at_station else "SCAN"],
+        category, session=attendance_session, when=when,
+    )
     ledger = PointsLedger.objects.create(
         student=student,
         attendance_session=attendance_session,
@@ -277,6 +284,9 @@ def award_student_of_class(attendance_session: AttendanceSession):
     session of the SAME course - one star per course per lifetime.
     They remain fully eligible for other courses.
     """
+    # Row-lock the session: without it two concurrent calls can both pass
+    # the "no winner yet" check below and crown two different students.
+    attendance_session = AttendanceSession.objects.select_for_update().get(id=attendance_session.id)
     existing = PointsLedger.objects.filter(
         attendance_session=attendance_session, category=PointsLedger.Category.STUDENT_OF_CLASS
     ).select_related("student").first()

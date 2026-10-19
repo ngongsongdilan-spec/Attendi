@@ -2,6 +2,7 @@ import uuid
 
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import PermissionsMixin
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
@@ -50,6 +51,14 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedUUIDModel):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     must_change_password = models.BooleanField(default=False)
+    admin_faculty = models.ForeignKey(
+        "academics.Faculty", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="faculty_administrators",
+    )
+    admin_department = models.ForeignKey(
+        "academics.Department", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="department_administrators",
+    )
     date_of_birth = models.DateField(null=True, blank=True)
     last_login_at = models.DateTimeField(null=True, blank=True)
 
@@ -69,6 +78,17 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedUUIDModel):
 
     def get_full_name(self):
         return f"{self.first_name} {self.last_name}".strip()
+
+    def clean(self):
+        super().clean()
+        if self.role == self.Role.FACULTY_ADMIN:
+            if not self.admin_faculty_id or self.admin_department_id:
+                raise ValidationError("Faculty administrators require exactly one faculty assignment.")
+        elif self.role == self.Role.DEPARTMENT_ADMIN:
+            if not self.admin_department_id or self.admin_faculty_id:
+                raise ValidationError("Department administrators require exactly one department assignment.")
+        elif self.admin_faculty_id or self.admin_department_id:
+            raise ValidationError("Only faculty and department administrators may have an admin scope.")
 
     @property
     def is_student(self):
