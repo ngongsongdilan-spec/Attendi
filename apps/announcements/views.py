@@ -1,5 +1,6 @@
 """Announcement views with scope-based visibility (FR-061, FR-063)."""
 from django.db import models as db_models
+from copy import copy
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -9,6 +10,7 @@ from rest_framework.views import APIView
 
 from apps.audit.services import audit
 from apps.core.permissions import ADMIN_ROLES
+from apps.core.scoping import can_manage_announcement, is_admin
 
 from .models import Announcement, AnnouncementRead
 from .serializers import AnnouncementReadSerializer, AnnouncementSerializer
@@ -18,17 +20,26 @@ STAFF_ROLES = {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN", "LECTURER"}
 
 def scope_filter_for(user):
     """Restrict announcements to the ones actually addressed to this person."""
-    if user.role in {"SYSTEM_ADMIN", "FACULTY_ADMIN"}:
+    if user.role == "SYSTEM_ADMIN":
         return db_models.Q()
 
+    if user.role == "FACULTY_ADMIN":
+        if not is_admin(user):
+            return db_models.Q(pk__in=[])
+        return (
+            db_models.Q(scope_type=Announcement.ScopeType.FACULTY, faculty_id=user.admin_faculty_id)
+            | db_models.Q(scope_type=Announcement.ScopeType.DEPARTMENT, department__faculty_id=user.admin_faculty_id)
+            | db_models.Q(scope_type=Announcement.ScopeType.COURSE, course_offering__department__faculty_id=user.admin_faculty_id)
+        )
+
     if user.role == "DEPARTMENT_ADMIN":
-        profile = getattr(user, "student_profile", None) or getattr(user, "lecturer_profile", None)
-        if profile and profile.department:
-            return (
-                db_models.Q(faculty_id=profile.department.faculty_id)
-                | db_models.Q(department_id=profile.department_id)
-            )
-        return db_models.Q(pk__in=[])
+        if not is_admin(user):
+            return db_models.Q(pk__in=[])
+        return (
+            db_models.Q(scope_type=Announcement.ScopeType.FACULTY, faculty_id=user.admin_department.faculty_id)
+            | db_models.Q(scope_type=Announcement.ScopeType.DEPARTMENT, department_id=user.admin_department_id)
+            | db_models.Q(scope_type=Announcement.ScopeType.COURSE, course_offering__department_id=user.admin_department_id)
+        )
 
     if user.role == "LECTURER":
         from apps.academics.models import CourseOffering
@@ -84,7 +95,7 @@ def visible_announcements(user, include_unpublished=False):
 
 
 def can_manage(user, announcement):
-    return announcement.created_by_id == user.id or user.role in ADMIN_ROLES
+    return can_manage_announcement(user, announcement)
 
 
 class AnnouncementListView(APIView):
@@ -143,6 +154,10 @@ class AnnouncementListView(APIView):
 
         s = AnnouncementSerializer(data=data, context={"request": request})
         s.is_valid(raise_exception=True)
+        candidate = Announcement(**s.validated_data)
+        candidate.created_by = request.user
+        if request.user.role in ADMIN_ROLES and not can_manage(request.user, candidate):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         announcement = s.save(
             created_by=request.user,
             published_at=request.data.get("published_at") or timezone.now(),
@@ -192,6 +207,11 @@ class AnnouncementDetailView(APIView):
 
         s = AnnouncementSerializer(announcement, data=data, partial=True, context={"request": request})
         s.is_valid(raise_exception=True)
+        candidate = copy(announcement)
+        for field, value in s.validated_data.items():
+            setattr(candidate, field, value)
+        if not can_manage(request.user, candidate):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         announcement = s.save()
         return Response(
             AnnouncementSerializer(announcement, context={"request": request}).data

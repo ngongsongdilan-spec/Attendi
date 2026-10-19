@@ -8,4 +8,6 @@ urlpatterns = [
     path("students/me/activity/", views_profile.StudentActivityView.as_view(), name="my-activity"),
     path("students/<uuid:student_id>/activity/", views_profile.StudentActivityView.as_view(), name="student-activity"),
     path("admin/roster/upload/", views_admin.RosterUploadView.as_view(), name="roster-upload"),
+    path("admin/accounts/", views_admin.AdminAccountListView.as_view(), name="admin-account-list"),
+    path("admin/accounts/<uuid:user_id>/", views_admin.AdminAccountAssignView.as_view(), name="admin-account-assign"),
 ]

@@ -13,6 +13,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from apps.core.scoping import can_view_user
 
 from .models import User
 from .serializers import MeSerializer
@@ -158,6 +159,8 @@ class StudentActivityView(APIView):
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "You cannot view this student's activity."}},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not can_view_user(request.user, target):
+            return Response(status=status.HTTP_403_FORBIDDEN)
 
         attendance = _attendance_summary(target)
         projects = _projects_summary(target)
