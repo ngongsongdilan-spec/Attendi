@@ -1,0 +1,33 @@
+{
+  "default_branch": "services",
+  "branches": [
+    "backend",
+    "backend-clean",
+    "frontend-clean",
+    "frontend-deploy",
+    "frontend-deploy-registration-fix",
+    "frontend-wirsiy-clean",
+    "origin",
+    "services"
+  ],
+  "parent": {
+    "backend": "services",
+    "backend-clean": "backend",
+    "frontend-clean": "services",
+    "frontend-deploy": "services",
+    "frontend-deploy-registration-fix": "frontend-deploy",
+    "frontend-wirsiy-clean": "services",
+    "origin": "services",
+    "services": null
+  },
+  "order": [
+    "services",
+    "backend",
+    "frontend-clean",
+    "frontend-deploy",
+    "frontend-wirsiy-clean",
+    "origin",
+    "backend-clean",
+    "frontend-deploy-registration-fix"
+  ]
+}
