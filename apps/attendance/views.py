@@ -2,8 +2,12 @@
 
 Start session -> select checkpoints -> generate tokens -> rotate -> students scan.
 """
+from types import SimpleNamespace
+from uuid import UUID, uuid4
+
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Count, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -14,20 +18,38 @@ from rest_framework.views import APIView
 
 from apps.academics.models import ClassDefinition, ClassSchedule, ClassSession, CourseOffering, Enrollment
 from apps.academics.services import enroll_cohort
+from apps.core.scoping import can_administer_offering, scope_by_department
 from apps.core.permissions import IsLecturer, IsLecturerOrAdmin, IsStudent
+from apps.core.throttling import PollingRateThrottle
 from apps.audit.services import audit
 
 from .models import AttendanceCheckpoint, AttendanceRecord, AttendanceSession, PointsLedger
+from .offline import record_v2_scan
 from .points import POINTS, award_manual_points, auto_select_stations
+from .read_cache import (
+    cached_read, history_key, is_enrolled, points_key, session_checkpoints,
+    session_snapshot, station_assignment, station_scan_count,
+)
 from .serializers import (
     AttendanceCheckpointSerializer,
     AttendanceRecordSerializer,
     AttendanceSessionSerializer,
+    CredentialBundleSerializer,
+    OfflineSyncSerializer,
     ScanRequestSerializer,
 )
-from .token_store import generate_tokens_for_session, validate_and_record_scan
+from .token_store import (
+    TOKEN_V2, TokenVerificationError, credential_bundle, decode_token_version,
+    generate_tokens_for_session, validate_and_record_scan, verify_hmac_token,
+)
 
 ADMIN_ROLES = {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}
+
+
+def _can_manage_attendance(user, offering, lecturer_id):
+    if user.role in ADMIN_ROLES:
+        return can_administer_offering(user, offering)
+    return user.role == "LECTURER" and lecturer_id == user.id
 
 
 def _parse_headcount(value):
@@ -41,6 +63,21 @@ def _parse_headcount(value):
         return None
 
 
+def _parse_duration(value, default, maximum):
+    """Return a session TTL in seconds, clamped to ``maximum``.
+
+    Malformed or non-positive input falls back to ``default`` instead of
+    escaping as an unhandled 500 (``int("abc")`` used to raise ValueError).
+    """
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        seconds = default
+    if seconds <= 0:
+        seconds = default
+    return min(seconds, maximum)
+
+
 class StartAttendanceView(APIView):
     """POST /api/v1/class-sessions/{session_id}/attendance
 
@@ -52,13 +89,14 @@ class StartAttendanceView(APIView):
 
     def post(self, request, session_id):
         class_session = get_object_or_404(ClassSession, id=session_id)
-        if class_session.class_definition.lecturer_id != request.user.id and request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}:
+        if not _can_manage_attendance(request.user, class_session.class_definition.course_offering, class_session.class_definition.lecturer_id):
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "You are not the assigned lecturer for this class."}},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        duration = min(
-            int(request.data.get("duration_seconds", getattr(settings, "ATTENDANCE_SESSION_DEFAULT_SECONDS", 60))),
+        duration = _parse_duration(
+            request.data.get("duration_seconds"),
+            getattr(settings, "ATTENDANCE_SESSION_DEFAULT_SECONDS", 60),
             getattr(settings, "ATTENDANCE_SESSION_MAX_SECONDS", 600),
         )
         now = timezone.now()
@@ -102,7 +140,7 @@ class FlexibleStartAttendanceView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         offering = get_object_or_404(CourseOffering.objects.select_for_update(), id=offering_id)
-        if offering.lecturer_id != request.user.id and request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}:
+        if not _can_manage_attendance(request.user, offering, offering.lecturer_id):
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "You are not the assigned lecturer for this course."}},
                 status=status.HTTP_403_FORBIDDEN,
@@ -170,8 +208,9 @@ class FlexibleStartAttendanceView(APIView):
             class_definition=class_def, starts_at=starts_at, ends_at=ends_at, status="ONGOING"
         )
 
-        duration = min(
-            int(request.data.get("duration_seconds", getattr(settings, "ATTENDANCE_SESSION_DEFAULT_SECONDS", 60))),
+        duration = _parse_duration(
+            request.data.get("duration_seconds"),
+            getattr(settings, "ATTENDANCE_SESSION_DEFAULT_SECONDS", 60),
             getattr(settings, "ATTENDANCE_SESSION_MAX_SECONDS", 600),
         )
         now = timezone.now()
@@ -232,7 +271,7 @@ class AutoSelectStationsView(APIView):
 
     def post(self, request, attendance_session_id):
         session = get_object_or_404(AttendanceSession, id=attendance_session_id)
-        if session.lecturer_id != request.user.id and request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}:
+        if not _can_manage_attendance(request.user, session.course_offering, session.lecturer_id):
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Only the session lecturer can select stations."}},
                 status=status.HTTP_403_FORBIDDEN,
@@ -299,7 +338,7 @@ class ManualAttendanceView(APIView):
 
     def post(self, request, attendance_session_id):
         session = get_object_or_404(AttendanceSession, id=attendance_session_id)
-        if session.lecturer_id != request.user.id and request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}:
+        if not _can_manage_attendance(request.user, session.course_offering, session.lecturer_id):
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Only the session lecturer can add manual attendance."}},
                 status=status.HTTP_403_FORBIDDEN,
@@ -340,7 +379,7 @@ class StudentOfClassView(APIView):
         from .points import award_student_of_class
 
         session = get_object_or_404(AttendanceSession, id=attendance_session_id)
-        if session.lecturer_id != request.user.id and request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}:
+        if not _can_manage_attendance(request.user, session.course_offering, session.lecturer_id):
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Only the session lecturer can pick the Student of the Class."}},
                 status=status.HTTP_403_FORBIDDEN,
@@ -366,54 +405,53 @@ class MyStationView(APIView):
     assignment, if any (so their phone can display the rotating QR)."""
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [PollingRateThrottle]
+    throttle_scope = "attendance_station_poll"
 
     def get(self, request):
-        checkpoint = AttendanceCheckpoint.objects.filter(
-            student=request.user, attendance_session__status=AttendanceSession.Status.ACTIVE
-        ).select_related("attendance_session", "attendance_session__class_session__class_definition__course_offering__course").first()
-        if checkpoint is None or not checkpoint.attendance_session.is_active:
+        assignment = station_assignment(request.user.id)
+        if assignment is None:
             return Response(None)
-        session = checkpoint.attendance_session
-        return Response({
-            "attendance_session_id": str(session.id),
-            "checkpoint_id": str(checkpoint.id),
-            "checkpoint_number": checkpoint.checkpoint_number,
-            "selection_method": checkpoint.selection_method,
-            "course_code": session.class_session.class_definition.course_offering.course.code,
-            "class_name": session.class_session.class_definition.name,
-            "session_expires_at": session.expires_at,
-        })
+        snapshot = session_snapshot(assignment["attendance_session_id"])
+        if snapshot["status"] != AttendanceSession.Status.ACTIVE or snapshot["expires_at"] <= timezone.now():
+            return Response(None)
+        return Response(assignment)
 
 
 class MyPointsView(APIView):
     """GET /api/v1/students/me/points - total points + breakdown."""
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [PollingRateThrottle]
+    throttle_scope = "attendance_history_poll"
 
     def get(self, request):
         from .points import POINTS, SPECIAL_DAY_MULTIPLIER, is_special_day
 
-        entries = PointsLedger.objects.filter(student=request.user).select_related("attendance_session")
-        total = sum(e.points for e in entries)
-        by_category = {}
-        for e in entries:
-            by_category[e.category] = by_category.get(e.category, 0) + e.points
-        birthday = is_special_day(request.user)
-        return Response({
-            "total_points": total,
-            "points_config": POINTS,
-            "special_day_multiplier": SPECIAL_DAY_MULTIPLIER if birthday else 1,
-            "is_special_day": birthday,
-            "by_category": by_category,
-            "recent": [
-                {
-                    "category": e.category,
-                    "points": e.points,
-                    "session_date": e.attendance_session.started_at.date().isoformat(),
-                }
-                for e in entries[:10]
-            ],
-        })
+        def load():
+            entries = PointsLedger.objects.filter(student_id=request.user.id)
+            by_category = {
+                row["category"]: row["total"]
+                for row in entries.values("category").annotate(total=Sum("points"))
+            }
+            birthday = is_special_day(request.user)
+            return {
+                "total_points": sum(by_category.values()),
+                "points_config": POINTS,
+                "special_day_multiplier": SPECIAL_DAY_MULTIPLIER if birthday else 1,
+                "is_special_day": birthday,
+                "by_category": by_category,
+                "recent": [
+                    {
+                        "category": e.category,
+                        "points": e.points,
+                        "session_date": e.attendance_session.started_at.date().isoformat(),
+                    }
+                    for e in entries.select_related("attendance_session")[:10]
+                ],
+            }
+
+        return Response(cached_read(points_key(request.user.id), load, timeout=300))
 
 
 class StationTokenView(APIView):
@@ -425,23 +463,43 @@ class StationTokenView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [PollingRateThrottle]
+    throttle_scope = "attendance_station_token"
 
     def get(self, request, attendance_session_id):
-        session = get_object_or_404(AttendanceSession, id=attendance_session_id)
-        checkpoint = session.checkpoints.filter(student=request.user).first()
-        if checkpoint is None:
+        assignment = station_assignment(request.user.id, attendance_session_id)
+        if assignment is None:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "You are not a station in this session."}},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if not session.is_active:
+        snapshot = session_snapshot(attendance_session_id)
+        if snapshot["status"] != AttendanceSession.Status.ACTIVE or snapshot["expires_at"] <= timezone.now():
             return Response(
                 {"success": False, "error": {"code": "SESSION_EXPIRED", "message": "Attendance is closed."}},
                 status=status.HTTP_410_GONE,
             )
         from .token_store import TOKEN_TTL, generate_token_for_checkpoint
-        data = generate_token_for_checkpoint(session, checkpoint)
-        scans_at_station = checkpoint.records.filter(verification_method="QR_SCAN").count()
+        session = SimpleNamespace(
+            id=attendance_session_id,
+            started_at=snapshot["started_at"],
+            expires_at=snapshot["expires_at"],
+        )
+        checkpoint = SimpleNamespace(
+            id=assignment["checkpoint_id"],
+            checkpoint_number=assignment["checkpoint_number"],
+            selection_method=assignment["selection_method"],
+            student=SimpleNamespace(email=request.user.email),
+        )
+        version = TOKEN_V2 if settings.ATTENDANCE_TOKEN_VERSION == 2 and request.query_params.get("token_version") == "2" else 1
+        try:
+            data = generate_token_for_checkpoint(session, checkpoint, version=version)
+        except ValueError:
+            return Response(
+                {"success": False, "error": {"code": "TOKEN_WINDOW_EXPIRED", "message": "No full QR slot remains in this session."}},
+                status=status.HTTP_410_GONE,
+            )
+        scans_at_station = station_scan_count(checkpoint.id)
         is_auto = checkpoint.selection_method == "AUTO"
         scans_remaining = None
         if is_auto:
@@ -454,8 +512,8 @@ class StationTokenView(APIView):
             "expires_in_seconds": TOKEN_TTL,
             "scans_at_station": scans_at_station,
             "scans_remaining": scans_remaining,
-            "total_checked_in": session.records.count(),
-            "expected_headcount": session.expected_headcount,
+            "total_checked_in": snapshot["present"],
+            "expected_headcount": snapshot["expected_headcount"],
         })
 
 
@@ -470,7 +528,7 @@ class CheckpointsView(APIView):
 
     def post(self, request, attendance_session_id):
         session = get_object_or_404(AttendanceSession, id=attendance_session_id)
-        if session.lecturer_id != request.user.id:
+        if not _can_manage_attendance(request.user, session.course_offering, session.lecturer_id):
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Only the session lecturer can select checkpoints."}},
                 status=status.HTTP_403_FORBIDDEN,
@@ -516,6 +574,8 @@ class CheckpointsView(APIView):
 
     def get(self, request, attendance_session_id):
         session = get_object_or_404(AttendanceSession, id=attendance_session_id)
+        if request.user.role in ADMIN_ROLES and not can_administer_offering(request.user, session.course_offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         return Response(AttendanceCheckpointSerializer(session.checkpoints.all(), many=True).data)
 
 
@@ -528,9 +588,7 @@ class CheckpointDetailView(APIView):
 
     def delete(self, request, attendance_session_id, checkpoint_id):
         session = get_object_or_404(AttendanceSession, id=attendance_session_id)
-        if session.lecturer_id != request.user.id and request.user.role not in {
-            "SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN",
-        }:
+        if not _can_manage_attendance(request.user, session.course_offering, session.lecturer_id):
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Only the session lecturer can remove a station."}},
                 status=status.HTTP_403_FORBIDDEN,
@@ -556,18 +614,38 @@ class TokensView(APIView):
     throttle_scope = "attendance_admin"
 
     def post(self, request, attendance_session_id):
-        session = get_object_or_404(AttendanceSession, id=attendance_session_id)
-        if session.lecturer_id != request.user.id:
+        snapshot = session_snapshot(attendance_session_id)
+        if request.user.role in ADMIN_ROLES:
+            offering = get_object_or_404(CourseOffering, id=snapshot["offering_id"])
+            allowed = can_administer_offering(request.user, offering)
+        else:
+            allowed = request.user.role == "LECTURER" and str(request.user.id) == snapshot["lecturer_id"]
+        if not allowed:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Only the session lecturer can generate tokens."}},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if not session.is_active:
+        if snapshot["status"] != AttendanceSession.Status.ACTIVE or snapshot["expires_at"] <= timezone.now():
             return Response(
                 {"success": False, "error": {"code": "SESSION_EXPIRED", "message": "Attendance session is no longer active."}},
                 status=status.HTTP_410_GONE,
             )
-        data = generate_tokens_for_session(session)
+        checkpoints = [SimpleNamespace(
+            id=cp["id"], checkpoint_number=cp["checkpoint_number"],
+            student=SimpleNamespace(email=cp["student__email"]),
+        ) for cp in session_checkpoints(attendance_session_id)]
+        session = SimpleNamespace(
+            id=attendance_session_id, mode=snapshot["mode"],
+            started_at=snapshot["started_at"], expires_at=snapshot["expires_at"],
+        )
+        version = TOKEN_V2 if settings.ATTENDANCE_TOKEN_VERSION == 2 and request.query_params.get("token_version") == "2" else 1
+        try:
+            data = generate_tokens_for_session(session, checkpoints=checkpoints, version=version)
+        except ValueError:
+            return Response(
+                {"success": False, "error": {"code": "TOKEN_WINDOW_EXPIRED", "message": "No full QR slot remains in this session."}},
+                status=status.HTTP_410_GONE,
+            )
         return Response(data)
 
 
@@ -593,6 +671,124 @@ class ScanView(APIView):
         )
 
 
+class OfflineSyncView(APIView):
+    """Sync a bounded batch of signed QR captures for the signed-in student."""
+
+    permission_classes = [IsAuthenticated, IsStudent]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "attendance_sync"
+
+    def post(self, request):
+        serializer = OfflineSyncSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        session_id = serializer.validated_data["session_id"]
+        captures = serializer.validated_data["captures"]
+        batch_id = uuid4()
+        results = []
+
+        # Serialize writes with a manual close or headcount close. One enrollment
+        # and existing-record lookup serve the entire bounded batch.
+        with transaction.atomic():
+            session = get_object_or_404(
+                AttendanceSession.objects.select_for_update().select_related(
+                    "class_session__class_definition__course_offering"
+                ), id=session_id,
+            )
+            enrolled = Enrollment.objects.filter(
+                student=request.user, course_offering=session.course_offering,
+                status=Enrollment.Status.ACTIVE,
+            ).exists()
+            existing = AttendanceRecord.objects.filter(
+                attendance_session=session, student=request.user,
+            ).first()
+
+            for index, capture in enumerate(captures):
+                token = capture["token"]
+                if decode_token_version(token) != TOKEN_V2:
+                    result = {"success": False, "error_code": "TOKEN_VERSION_UNSUPPORTED", "message": "Offline sync requires a v2 QR token."}
+                else:
+                    try:
+                        claims = verify_hmac_token(token)
+                    except TokenVerificationError:
+                        result = {"success": False, "error_code": "TOKEN_INVALID", "message": "Invalid QR code."}
+                    else:
+                        if claims["session_id"] != session.id or (
+                            "checkpoint_id" in capture and capture["checkpoint_id"] != claims["checkpoint_id"]
+                        ):
+                            result = {"success": False, "error_code": "TOKEN_INVALID", "message": "QR code does not match this session or station."}
+                        else:
+                            result = record_v2_scan(
+                                session, request.user, claims, offline=True,
+                                batch_id=batch_id, enrolled=enrolled,
+                                existing_record=existing, existing_checked=True,
+                            )
+                            if result["success"] and not result.get("duplicate"):
+                                existing = SimpleNamespace(id=UUID(result["attendance_record_id"]))
+
+                item = {"index": index}
+                if result["success"]:
+                    item.update({
+                        "status": "DUPLICATE" if result.get("duplicate") else "ACCEPTED",
+                        "record_id": result["attendance_record_id"],
+                    })
+                else:
+                    item.update({"status": "REJECTED", "code": result["error_code"], "message": result["message"]})
+                results.append(item)
+
+        response = Response({"batch_id": str(batch_id), "results": results})
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+
+class StationCredentialView(APIView):
+    """Give the assigned station its session-scoped v2 signing material."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "attendance_admin"
+
+    def get(self, request, attendance_session_id):
+        session = get_object_or_404(AttendanceSession, id=attendance_session_id)
+        checkpoint = session.checkpoints.filter(student=request.user).first()
+        if checkpoint is None:
+            return Response(
+                {"success": False, "error": {"code": "FORBIDDEN", "message": "You are not a station in this session."}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not session.is_active:
+            return Response(
+                {"success": False, "error": {"code": "SESSION_EXPIRED", "message": "Attendance is closed."}},
+                status=status.HTTP_410_GONE,
+            )
+        response = Response(CredentialBundleSerializer(credential_bundle(session, checkpoint.id)).data)
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+
+class ProjectorCredentialView(APIView):
+    """Give the session lecturer a projector-scoped v2 signing key."""
+
+    permission_classes = [IsAuthenticated, IsLecturerOrAdmin]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "attendance_admin"
+
+    def get(self, request, attendance_session_id):
+        session = get_object_or_404(AttendanceSession, id=attendance_session_id)
+        if session.lecturer_id != request.user.id:
+            return Response(
+                {"success": False, "error": {"code": "FORBIDDEN", "message": "Only this session's lecturer can use the projector credential."}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not session.is_active:
+            return Response(
+                {"success": False, "error": {"code": "SESSION_EXPIRED", "message": "Attendance is closed."}},
+                status=status.HTTP_410_GONE,
+            )
+        response = Response(CredentialBundleSerializer(credential_bundle(session)).data)
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+
 class CloseAttendanceView(APIView):
     """POST /api/v1/attendance/{session_id}/close
 
@@ -604,7 +800,7 @@ class CloseAttendanceView(APIView):
 
     def post(self, request, attendance_session_id):
         session = get_object_or_404(AttendanceSession, id=attendance_session_id)
-        if session.lecturer_id != request.user.id and request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}:
+        if not _can_manage_attendance(request.user, session.course_offering, session.lecturer_id):
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Only the session lecturer can close this session."}},
                 status=status.HTTP_403_FORBIDDEN,
@@ -624,34 +820,40 @@ class CloseAttendanceView(APIView):
 class AttendanceStatusView(APIView):
     """GET /api/v1/attendance/{session_id} - live status for lecturer."""
     permission_classes = [IsAuthenticated]
+    throttle_classes = [PollingRateThrottle]
+    throttle_scope = "attendance_live_poll"
 
     def get(self, request, attendance_session_id):
-        session = get_object_or_404(AttendanceSession, id=attendance_session_id)
+        snapshot = session_snapshot(attendance_session_id)
+        if request.user.role in ADMIN_ROLES:
+            offering = get_object_or_404(CourseOffering, id=snapshot["offering_id"])
+            if not can_administer_offering(request.user, offering):
+                return Response(status=status.HTTP_403_FORBIDDEN)
         if request.user.role == "STUDENT":
-            if not Enrollment.objects.filter(
-                student=request.user, course_offering=session.course_offering, status=Enrollment.Status.ACTIVE
-            ).exists():
+            if not is_enrolled(request.user.id, snapshot["offering_id"]):
                 return Response(
                     {"success": False, "error": {"code": "FORBIDDEN", "message": "Access denied."}},
                     status=status.HTTP_403_FORBIDDEN,
                 )
-        total_eligible = Enrollment.objects.filter(
-            course_offering=session.course_offering, status=Enrollment.Status.ACTIVE
-        ).count()
-        total_present = session.records.count()
+        elif request.user.role not in ADMIN_ROLES and (
+            request.user.role != "LECTURER" or str(request.user.id) != snapshot["lecturer_id"]
+        ):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        total_eligible = snapshot["total_eligible"]
+        total_present = snapshot["present"]
         headcount_remaining = None
-        if session.expected_headcount is not None:
-            headcount_remaining = max(0, session.expected_headcount - total_present)
+        if snapshot["expected_headcount"] is not None:
+            headcount_remaining = max(0, snapshot["expected_headcount"] - total_present)
         return Response({
-            "status": session.status,
-            "is_active": session.is_active,
+            "status": snapshot["status"],
+            "is_active": snapshot["status"] == AttendanceSession.Status.ACTIVE and snapshot["expires_at"] > timezone.now(),
             "total_eligible": total_eligible,
             "present": total_present,
             "remaining": total_eligible - total_present,
-            "expires_at": session.expires_at,
-            "expected_headcount": session.expected_headcount,
+            "expires_at": snapshot["expires_at"],
+            "expected_headcount": snapshot["expected_headcount"],
             "headcount_remaining": headcount_remaining,
-            "headcount_reached_at": session.headcount_reached_at,
+            "headcount_reached_at": snapshot["headcount_reached_at"],
         })
 
 
@@ -664,6 +866,8 @@ class MyAttendanceSessionsView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [PollingRateThrottle]
+    throttle_scope = "attendance_live_poll"
 
     def get(self, request):
         qs = AttendanceSession.objects.filter(lecturer=request.user).select_related(
@@ -671,17 +875,37 @@ class MyAttendanceSessionsView(APIView):
             "class_session__class_definition",
             "class_session__class_definition__course_offering__course",
         )
+        if request.user.role in ADMIN_ROLES:
+            qs = scope_by_department(qs, request.user, "class_session__class_definition__course_offering__department")
         now = timezone.now()
-        live = [s for s in qs if s.is_active]
-        recent = sorted(
-            (s for s in qs if not s.is_active),
-            key=lambda s: s.started_at,
-            reverse=True,
-        )[:10]
+        live_filter = {"status": AttendanceSession.Status.ACTIVE, "expires_at__gt": now}
+        live = list(qs.filter(**live_filter))
+        recent = list(qs.exclude(**live_filter).order_by("-started_at")[:10])
+        sessions = live + recent
+        session_ids = [s.id for s in sessions]
+        offering_ids = {
+            s.class_session.class_definition.course_offering_id for s in sessions
+        }
+        present_by_session = {
+            row["attendance_session_id"]: row["total"]
+            for row in AttendanceRecord.objects.filter(
+                attendance_session_id__in=session_ids
+            ).values("attendance_session_id").annotate(total=Count("id"))
+        }
+        eligible_by_offering = {
+            row["course_offering_id"]: row["total"]
+            for row in Enrollment.objects.filter(
+                course_offering_id__in=offering_ids,
+                status=Enrollment.Status.ACTIVE,
+            ).values("course_offering_id").annotate(total=Count("id"))
+        }
         payload = []
-        for s in live + recent:
-            data = AttendanceSessionSerializer(s).data
+        for s in sessions:
+            data = AttendanceSessionSerializer(
+                s, context={"present_by_session": present_by_session}
+            ).data
             offering = s.course_offering
+            present = present_by_session.get(s.id, 0)
             # A session whose window has passed is finished for display, whatever
             # the stored status says - otherwise dead sessions look ACTIVE.
             effective_status = s.status
@@ -693,12 +917,10 @@ class MyAttendanceSessionsView(APIView):
                 "class_session_id": str(s.class_session_id),
                 "is_active": s.is_active,
                 "status": effective_status,
-                "present": s.records.count(),
-                "total_eligible": Enrollment.objects.filter(
-                    course_offering=offering, status=Enrollment.Status.ACTIVE
-                ).count(),
+                "present": present,
+                "total_eligible": eligible_by_offering.get(offering.id, 0),
                 "headcount_remaining": (
-                    max(0, s.expected_headcount - s.records.count())
+                    max(0, s.expected_headcount - present)
                     if s.expected_headcount is not None else None
                 ),
             })
@@ -715,7 +937,11 @@ class SessionRecordsView(APIView):
         cs = get_object_or_404(ClassSession, id=session_id)
         owner = cs.class_definition.lecturer_id
         offering_lecturer = cs.class_definition.course_offering.lecturer_id
-        if request.user.id not in {owner, offering_lecturer} and request.user.role not in ADMIN_ROLES:
+        if request.user.role in ADMIN_ROLES:
+            allowed = can_administer_offering(request.user, cs.class_definition.course_offering)
+        else:
+            allowed = request.user.id in {owner, offering_lecturer}
+        if not allowed:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "You can only view attendance for classes you teach."}},
                 status=status.HTTP_403_FORBIDDEN,
@@ -728,31 +954,37 @@ class SessionRecordsView(APIView):
 class MyAttendanceView(APIView):
     """GET /api/v1/students/me/attendance - student's own attendance history."""
     permission_classes = [IsAuthenticated]
+    throttle_classes = [PollingRateThrottle]
+    throttle_scope = "attendance_history_poll"
 
     def get(self, request):
-        records = AttendanceRecord.objects.filter(student=request.user).select_related(
-            "attendance_session", "attendance_session__class_session", "attendance_session__class_session__class_definition"
-        )
-        result = []
-        for r in records:
-            cs = r.attendance_session.class_session
-            cd = cs.class_definition
-            result.append({
-                "id": r.id,
-                "recorded_at": r.recorded_at,
-                "status": r.status,
-                "class_name": cd.name,
-                "course_code": cd.course_offering.course.code,
-                "session_date": cs.starts_at.date().isoformat(),
-            })
-        return Response(result)
+        def load():
+            records = AttendanceRecord.objects.filter(student_id=request.user.id).select_related(
+                "attendance_session", "attendance_session__class_session",
+                "attendance_session__class_session__class_definition__course_offering__course",
+            )
+            result = []
+            for r in records:
+                cs = r.attendance_session.class_session
+                cd = cs.class_definition
+                result.append({
+                    "id": r.id,
+                    "recorded_at": r.recorded_at,
+                    "status": r.status,
+                    "class_name": cd.name,
+                    "course_code": cd.course_offering.course.code,
+                    "session_date": cs.starts_at.date().isoformat(),
+                })
+            return result
+
+        return Response(cached_read(history_key(request.user.id), load, timeout=300))
 
 
 def _owns_record(request, record):
     """Only the lecturer who owns the class session (or an admin) may
     correct/delete a record. Prevents cross-course tampering."""
     lecturer_id = record.attendance_session.lecturer_id
-    return lecturer_id == request.user.id or request.user.role in ADMIN_ROLES
+    return _can_manage_attendance(request.user, record.attendance_session.course_offering, lecturer_id)
 
 
 class CorrectRecordView(APIView):

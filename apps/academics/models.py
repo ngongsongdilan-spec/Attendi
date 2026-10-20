@@ -2,6 +2,7 @@ import uuid
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -105,6 +106,16 @@ class CourseOffering(TimeStampedUUIDModel):
     class Meta:
         ordering = ["-semester__academic_year", "course__code"]
         unique_together = [("course", "semester")]
+
+    def clean(self):
+        super().clean()
+        # The denormalised department drives admin scoping, so it must never
+        # diverge from the course it belongs to - a mismatch would hand the
+        # offering to the wrong department's administrators.
+        if self.course_id and self.department_id and self.course.department_id != self.department_id:
+            raise ValidationError(
+                {"department": "The offering department must match the course's department."}
+            )
 
     def __str__(self):
         return f"{self.course.code} - {self.semester.name}"

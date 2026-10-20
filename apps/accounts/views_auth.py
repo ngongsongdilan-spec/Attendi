@@ -55,7 +55,7 @@ class RegisterView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        if request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}:
+        if request.user.role != User.Role.SYSTEM_ADMIN:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Only administrators can create accounts."}},
                 status=status.HTTP_403_FORBIDDEN,
@@ -175,6 +175,12 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if user is None:
+            # Hash the supplied password even when no account matched, exactly
+            # as Django's ModelBackend does: without it, a missing email or
+            # matricule returns measurably faster and the timing difference
+            # can be used to enumerate registered accounts.
+            User().set_password(password)
         if user is None or not check_password(password, user.password):
             return Response(
                 {"success": False, "error": {"code": "UNAUTHENTICATED", "message": "Invalid credentials."}},
@@ -183,6 +189,12 @@ class LoginView(APIView):
         if not user.is_active or user.status != User.Status.ACTIVE:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Your account is not active."}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        from apps.core.scoping import is_admin
+        if user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not is_admin(user):
+            return Response(
+                {"success": False, "error": {"code": "ADMIN_SCOPE_REQUIRED", "message": "Ask a system admin to assign your faculty or department."}},
                 status=status.HTTP_403_FORBIDDEN,
             )
         user.record_login()

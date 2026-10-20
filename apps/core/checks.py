@@ -8,6 +8,25 @@ from django.conf import settings
 from django.core.checks import Error, Warning, register
 
 
+
+@register()
+def attendance_hmac_key_check(app_configs, **kwargs):
+    """Offline tokens must use a stable deployment-wide secret."""
+    if settings.DEBUG:
+        return []
+    try:
+        from apps.attendance.token_store import configured_hmac_key
+
+        configured_hmac_key()
+    except ValueError:
+        return [Error(
+            "ATTENDANCE_TOKEN_HMAC_KEY is missing or shorter than 32 bytes.",
+            hint="Set one stable random 32-byte key (64 hex characters) on every backend instance.",
+            id="fet.E008",
+        )]
+    return []
+
+
 @register()
 def secure_secret_key_check(app_configs, **kwargs):
     if settings.DEBUG:
@@ -63,6 +82,18 @@ def shared_cache_required_in_production(app_configs, **kwargs):
             )
         )
     return errors
+
+
+@register()
+def redis_required_for_traffic_mode(app_configs, **kwargs):
+    """AWS traffic mode must not silently fall back to per-worker poll limits."""
+    if not settings.REQUIRE_REDIS_FOR_TRAFFIC or settings.REDIS_URL:
+        return []
+    return [Error(
+        "REQUIRE_REDIS_FOR_TRAFFIC is enabled but REDIS_URL is missing.",
+        hint="Configure a shared Redis service before enabling traffic mode.",
+        id="fet.E007",
+    )]
 
 
 @register()

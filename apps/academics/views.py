@@ -13,6 +13,10 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import User
 from apps.core.permissions import IsAdmin, IsLecturerOrAdmin
+from apps.core.scoping import (
+    can_administer_department, can_administer_offering, is_admin,
+    scope_by_department, scope_users,
+)
 from apps.audit.services import audit
 from apps.learning.models import Assessment, AssessmentMark, AssignmentSubmission
 
@@ -54,6 +58,8 @@ class FacultyCreateView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
     def post(self, request):
+        if request.user.role != User.Role.SYSTEM_ADMIN:
+            return Response(status=status.HTTP_403_FORBIDDEN)
         s = FacultySerializer(data=request.data)
         s.is_valid(raise_exception=True)
         faculty = s.save()
@@ -97,6 +103,11 @@ class DepartmentCreateView(APIView):
     def post(self, request):
         s = DepartmentSerializer(data=request.data)
         s.is_valid(raise_exception=True)
+        if not request.user.role == User.Role.SYSTEM_ADMIN and not (
+            request.user.role == User.Role.FACULTY_ADMIN
+            and s.validated_data["faculty"].id == request.user.admin_faculty_id
+        ):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         dept = s.save()
         audit(user=request.user, action="DEPARTMENT_CREATED", resource_type="Department", resource_id=dept.id, request=request)
         return Response(DepartmentSerializer(dept).data, status=status.HTTP_201_CREATED)
@@ -121,7 +132,7 @@ class SemesterActivateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, semester_id):
-        if request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}:
+        if request.user.role != User.Role.SYSTEM_ADMIN:
             return Response({"error": "Forbidden"}, status=403)
         semester = get_object_or_404(Semester, id=semester_id)
         semester.is_active = True
@@ -134,15 +145,15 @@ class AdminStatsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}:
+        if not is_admin(request.user):
             return Response({"error": "Forbidden"}, status=403)
 
         from apps.accounts.models import User, StudentProfile, LecturerProfile
 
         active_semester = Semester.objects.filter(is_active=True).first()
         stats = {
-            "total_students": User.objects.filter(role="STUDENT").count(),
-            "total_lecturers": User.objects.filter(role="LECTURER").count(),
+            "total_students": scope_users(User.objects.filter(role="STUDENT"), request.user).count(),
+            "total_lecturers": scope_users(User.objects.filter(role="LECTURER"), request.user).count(),
             "total_departments": 0,
             "total_courses": 0,
             "total_offerings": 0,
@@ -157,14 +168,16 @@ class AdminStatsView(APIView):
                 "academic_year": active_semester.academic_year,
                 "number": active_semester.number,
             }
-            stats["total_offerings"] = CourseOffering.objects.filter(semester=active_semester).count()
-            stats["total_enrollments"] = Enrollment.objects.filter(
+            stats["total_offerings"] = scope_by_department(
+                CourseOffering.objects.filter(semester=active_semester), request.user,
+            ).count()
+            stats["total_enrollments"] = scope_by_department(Enrollment.objects.filter(
                 course_offering__semester=active_semester,
                 status=Enrollment.Status.ACTIVE,
-            ).count()
+            ), request.user, "course_offering__department").count()
 
-        stats["total_courses"] = Course.objects.count()
-        stats["total_departments"] = Department.objects.count()
+        stats["total_courses"] = scope_by_department(Course.objects.all(), request.user).count()
+        stats["total_departments"] = scope_by_department(Department.objects.all(), request.user, "id").count()
 
         # Returned bare: SuccessRenderer already wraps it as {success, data}.
         return Response(stats)
@@ -187,8 +200,12 @@ class CourseListView(APIView):
         return Response(CourseSerializer(qs, many=True).data)
 
     def post(self, request):
+        if not is_admin(request.user):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         s = CourseSerializer(data=request.data)
         s.is_valid(raise_exception=True)
+        if not can_administer_department(request.user, s.validated_data["department"]):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         course = s.save()
         audit(user=request.user, action="COURSE_CREATED", resource_type="Course", resource_id=course.id, request=request)
         return Response(CourseSerializer(course).data, status=status.HTTP_201_CREATED)
@@ -220,6 +237,18 @@ class CourseOfferingCreateView(APIView):
     def post(self, request):
         s = CourseOfferingSerializer(data=request.data)
         s.is_valid(raise_exception=True)
+        if s.validated_data["course"].department_id != s.validated_data["department"].id:
+            return Response({"error": "The offering must belong to its course's department."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not can_administer_department(
+            request.user, s.validated_data["department"]
+        ):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        lecturer = s.validated_data.get("lecturer")
+        if lecturer and request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not scope_users(
+            User.objects.filter(id=lecturer.id), request.user
+        ).exists():
+            return Response(status=status.HTTP_403_FORBIDDEN)
         offering = s.save()
         return Response(CourseOfferingSerializer(offering).data, status=status.HTTP_201_CREATED)
 
@@ -244,12 +273,18 @@ class CourseOfferingDetailView(APIView):
             )
 
         offering = get_object_or_404(CourseOffering, id=offering_id)
+        if not can_administer_offering(request.user, offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         lecturer_id = request.data.get("lecturer")
         lecturer = None
         if lecturer_id:
             lecturer = get_object_or_404(
                 User, id=lecturer_id, role="LECTURER", is_active=True, status=User.Status.ACTIVE
             )
+            if request.user.role != User.Role.SYSTEM_ADMIN and not scope_users(
+                User.objects.filter(id=lecturer.id), request.user
+            ).exists():
+                return Response(status=status.HTTP_403_FORBIDDEN)
 
         # Assigning a lecturer must hand them a ready-to-use classroom: the
         # offering is theirs (so it shows on their panel and attendance works),
@@ -284,6 +319,8 @@ class EnrollmentListView(APIView):
 
     def get(self, request, offering_id):
         offering = get_object_or_404(CourseOffering, id=offering_id)
+        if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not can_administer_offering(request.user, offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         if request.user.role == "STUDENT":
             if not Enrollment.objects.filter(student=request.user, course_offering=offering, status=Enrollment.Status.ACTIVE).exists():
                 return Response(
@@ -295,6 +332,8 @@ class EnrollmentListView(APIView):
 
     def post(self, request, offering_id):
         offering = get_object_or_404(CourseOffering, id=offering_id)
+        if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not can_administer_offering(request.user, offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         if not offering.semester.is_active:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Enrollment is only open for the active semester."}},
@@ -307,6 +346,10 @@ class EnrollmentListView(APIView):
             )
         student_id = request.data.get("student_id")
         student = get_object_or_404(User, id=student_id, role="STUDENT")
+        if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not scope_users(
+            User.objects.filter(id=student.id), request.user
+        ).exists():
+            return Response(status=status.HTTP_403_FORBIDDEN)
         if Enrollment.objects.filter(student=student, course_offering=offering, status=Enrollment.Status.ACTIVE).exists():
             return Response(
                 {"success": False, "error": {"code": "CONFLICT", "message": "Student is already enrolled in this offering."}},
@@ -319,6 +362,12 @@ class EnrollmentListView(APIView):
 
     def delete(self, request, offering_id, student_id):
         offering = get_object_or_404(CourseOffering, id=offering_id)
+        if request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN", "LECTURER"}:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not can_administer_offering(request.user, offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        if request.user.role == User.Role.LECTURER and offering.lecturer_id != request.user.id:
+            return Response(status=status.HTTP_403_FORBIDDEN)
         enrollment = get_object_or_404(Enrollment, student_id=student_id, course_offering=offering, status=Enrollment.Status.ACTIVE)
         enrollment.status = Enrollment.Status.DROPPED
         from django.utils import timezone
@@ -506,6 +555,8 @@ class ClassDefinitionListView(APIView):
 
     def post(self, request, offering_id):
         offering = get_object_or_404(CourseOffering, id=offering_id)
+        if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not can_administer_offering(request.user, offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         if request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN", "LECTURER"}:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Not authorized."}},
@@ -540,6 +591,8 @@ class ClassSessionListView(APIView):
 
     def post(self, request, class_id):
         cd = get_object_or_404(ClassDefinition, id=class_id)
+        if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not can_administer_offering(request.user, cd.course_offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         if request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN", "LECTURER"}:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Not authorized."}},
@@ -583,6 +636,8 @@ class EligibleStudentsView(APIView):
         allowed = request.user.role in {
             "SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN",
         } or request.user.id in {owner, offering_lecturer} or request.user.id in running
+        if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN}:
+            allowed = can_administer_offering(request.user, cs.class_definition.course_offering)
         if not allowed:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "You can only view the roster of classes you teach."}},
@@ -669,6 +724,8 @@ class ScheduleListView(APIView):
 
     def post(self, request, offering_id):
         offering = get_object_or_404(CourseOffering, id=offering_id)
+        if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not can_administer_offering(request.user, offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         if request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN", "LECTURER"}:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Not authorized."}},
@@ -692,6 +749,8 @@ class ScheduleDetailView(APIView):
 
     def delete(self, request, schedule_id):
         schedule = get_object_or_404(ClassSchedule, id=schedule_id)
+        if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not can_administer_offering(request.user, schedule.course_offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         if schedule.lecturer_id != request.user.id and request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Not authorized."}},
@@ -755,6 +814,8 @@ class CarryOverListView(APIView):
         qs = CarryOverApplication.objects.select_related("student", "course_offering", "course_offering__course")
         if request.user.role == "STUDENT":
             qs = qs.filter(student=request.user)
+        elif request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN}:
+            qs = scope_by_department(qs, request.user, "course_offering__department")
         status_filter = request.query_params.get("status")
         if status_filter:
             qs = qs.filter(status=status_filter.upper())
@@ -794,6 +855,8 @@ class CarryOverReviewView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
         app = get_object_or_404(CarryOverApplication, id=application_id)
+        if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not can_administer_offering(request.user, app.course_offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         decision = (request.data.get("decision") or "").upper()
         if decision not in {CarryOverApplication.Status.APPROVED, CarryOverApplication.Status.REJECTED}:
             return Response(

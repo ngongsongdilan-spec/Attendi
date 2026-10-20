@@ -22,6 +22,7 @@ from apps.academics.models import Course, CourseOffering, Enrollment, Semester
 from apps.accounts.models import User
 from apps.audit.services import audit
 from apps.core.permissions import ADMIN_ROLES
+from apps.core.scoping import can_administer_offering, is_admin, scope_by_department
 
 from .models import (
     Assessment,
@@ -49,13 +50,15 @@ STAFF_ROLES = {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN", "LECTURER"}
 
 
 def _is_staff(user):
-    return user.role in STAFF_ROLES
+    return user.role == "LECTURER" or is_admin(user)
 
 
 def _can_view_material(user, material):
     """Enrollment gate for materials (BR-070, BR-071). Staff manage all, students
     only see materials of offerings they are actively enrolled in."""
-    if not user.role == "STUDENT":
+    if user.role in ADMIN_ROLES:
+        return can_administer_offering(user, material.course_offering)
+    if user.role != "STUDENT":
         return True
     return Enrollment.objects.filter(
         student=user, course_offering=material.course_offering, status=Enrollment.Status.ACTIVE
@@ -65,7 +68,7 @@ def _can_view_material(user, material):
 def _can_manage_offering(request, offering):
     """BR-072: lecturers may only manage offerings assigned to them; admins broad."""
     if request.user.role in ADMIN_ROLES:
-        return True
+        return can_administer_offering(request.user, offering)
     return request.user.role == "LECTURER" and offering.lecturer_id == request.user.id
 
 
@@ -77,9 +80,26 @@ def _can_access_file(user, uploaded_file):
     """File access is context-aware (FR-052, BR-181): uploader always allowed,
     staff allowed for management, students allowed when the file belongs to a
     course they are enrolled in or a project they belong to."""
-    if uploaded_file.uploaded_by_id == user.id:
-        return True
     if user.role in ADMIN_ROLES:
+        if not is_admin(user):
+            return False
+        from apps.projects.models import ProjectDocument
+        scoped_offerings = scope_by_department(CourseOffering.objects.all(), user)
+        return (
+            LearningMaterial.objects.filter(file=uploaded_file, course_offering__in=scoped_offerings).exists()
+            or Assignment.objects.filter(attachment=uploaded_file, course_offering__in=scoped_offerings).exists()
+            or AssignmentSubmission.objects.filter(file=uploaded_file, assignment__course_offering__in=scoped_offerings).exists()
+            or Assessment.objects.filter(attachment=uploaded_file, course_offering__in=scoped_offerings).exists()
+            or ProjectDocument.objects.filter(file=uploaded_file, project__course_offering__in=scoped_offerings).exists()
+            or (uploaded_file.uploaded_by_id == user.id and not (
+                LearningMaterial.objects.filter(file=uploaded_file).exists()
+                or Assignment.objects.filter(attachment=uploaded_file).exists()
+                or AssignmentSubmission.objects.filter(file=uploaded_file).exists()
+                or Assessment.objects.filter(attachment=uploaded_file).exists()
+                or ProjectDocument.objects.filter(file=uploaded_file).exists()
+            ))
+        )
+    if uploaded_file.uploaded_by_id == user.id:
         return True
     from apps.projects.models import ProjectDocument
 
@@ -132,6 +152,8 @@ class MaterialListView(APIView):
 
     def get(self, request, offering_id):
         offering = get_object_or_404(CourseOffering, id=offering_id)
+        if request.user.role in ADMIN_ROLES and not can_administer_offering(request.user, offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         if request.user.role == "STUDENT":
             if not Enrollment.objects.filter(student=request.user, course_offering=offering, status=Enrollment.Status.ACTIVE).exists():
                 return Response(
@@ -142,7 +164,7 @@ class MaterialListView(APIView):
 
     def post(self, request, offering_id):
         offering = get_object_or_404(CourseOffering, id=offering_id)
-        if not _is_staff(request.user):
+        if not _can_manage_offering(request, offering):
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Only staff can upload materials."}},
                 status=status.HTTP_403_FORBIDDEN,
@@ -172,6 +194,8 @@ class MaterialDetailView(APIView):
 
     def patch(self, request, material_id):
         material = get_object_or_404(LearningMaterial, id=material_id)
+        if request.user.role in ADMIN_ROLES and not can_administer_offering(request.user, material.course_offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         if request.user.id != material.uploaded_by_id and request.user.role not in {"SYSTEM_ADMIN", "FACULTY_ADMIN"}:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Not authorized."}},
@@ -184,7 +208,9 @@ class MaterialDetailView(APIView):
 
     def delete(self, request, material_id):
         material = get_object_or_404(LearningMaterial, id=material_id)
-        if request.user.id != material.uploaded_by_id and request.user.role not in {*ADMIN_ROLES}:
+        if request.user.role in ADMIN_ROLES and not can_administer_offering(request.user, material.course_offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        if request.user.id != material.uploaded_by_id and request.user.role not in ADMIN_ROLES:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Not authorized."}},
                 status=status.HTTP_403_FORBIDDEN,
@@ -266,6 +292,8 @@ class AssignmentListView(APIView):
 
     def get(self, request, offering_id):
         offering = get_object_or_404(CourseOffering, id=offering_id)
+        if request.user.role in ADMIN_ROLES and not can_administer_offering(request.user, offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         if request.user.role == "STUDENT" and not _is_enrolled(request.user, offering):
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Not enrolled in this course."}},
@@ -297,6 +325,8 @@ class AssignmentDetailView(APIView):
 
     def get(self, request, assignment_id):
         assignment = get_object_or_404(Assignment, id=assignment_id)
+        if request.user.role in ADMIN_ROLES and not can_administer_offering(request.user, assignment.course_offering):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         if request.user.role == "STUDENT" and not _is_enrolled(request.user, assignment.course_offering):
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Not enrolled in this course."}},
@@ -459,6 +489,8 @@ def _classroom_courses(user):
     """Courses this lecturer may open a classroom for: their own department
     (their teaching assignment scope). Admins may use any department."""
     qs = Course.objects.filter(status="ACTIVE").select_related("department")
+    if user.role in ADMIN_ROLES:
+        return scope_by_department(qs, user)
     if user.role not in ADMIN_ROLES:
         dept = _lecturer_department(user)
         if dept is None:
