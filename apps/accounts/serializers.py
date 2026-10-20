@@ -271,11 +271,27 @@ class ProfileUpdateSerializer(serializers.Serializer):
 
 
 class StudentListSerializer(serializers.ModelSerializer):
+    """Admin-only directory listing (also powers User management).
+
+    Only exposed through ``UserListView`` (``IsAdmin``), so account state is
+    safe to include here -- the admin screen needs it to show who is blocked
+    and to restore a soft-deleted account.
+    """
+
     full_name = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "email", "first_name", "last_name", "full_name"]
+        fields = [
+            "id",
+            "email",
+            "first_name",
+            "last_name",
+            "full_name",
+            "role",
+            "status",
+            "is_active",
+        ]
         read_only_fields = fields
 
     def get_full_name(self, obj):
