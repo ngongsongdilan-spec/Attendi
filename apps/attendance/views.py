@@ -947,8 +947,70 @@ class SessionRecordsView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
         sessions = AttendanceSession.objects.filter(class_session=cs)
-        records = AttendanceRecord.objects.filter(attendance_session__in=sessions).select_related("student")
+        records = AttendanceRecord.objects.filter(attendance_session__in=sessions).select_related(
+            "student", "student__student_profile", "student__student_profile__department"
+        )
         return Response(AttendanceRecordSerializer(records, many=True).data)
+
+
+class AttendanceSessionDetailView(APIView):
+    """GET /api/v1/attendance/{attendance_session_id}/records/
+
+    Everything the lecturer detail page needs for one specific session: the
+    session header (course, class, times, counts) and the per-student check-in
+    rows, each with the student's matricule, department and level.
+    Restricted to the lecturer who owns the class (or an admin).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, attendance_session_id):
+        session = get_object_or_404(AttendanceSession, id=attendance_session_id)
+        class_definition = session.class_session.class_definition
+        offering = class_definition.course_offering
+        owner = class_definition.lecturer_id
+        offering_lecturer = offering.lecturer_id
+        if request.user.role in ADMIN_ROLES:
+            allowed = can_administer_offering(request.user, offering)
+        else:
+            allowed = request.user.id in {owner, offering_lecturer}
+        if not allowed:
+            return Response(
+                {"success": False, "error": {"code": "FORBIDDEN", "message": "You can only view attendance for classes you teach."}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        records = AttendanceRecord.objects.filter(
+            attendance_session=session
+        ).select_related(
+            "student", "student__student_profile", "student__student_profile__department"
+        )
+        present = records.count()
+        eligible = Enrollment.objects.filter(
+            course_offering=offering,
+            status=Enrollment.Status.ACTIVE,
+        ).count()
+        effective_status = session.status
+        if session.status == AttendanceSession.Status.ACTIVE and not session.is_active:
+            effective_status = AttendanceSession.Status.CLOSED
+
+        return Response({
+            "session": {
+                "id": str(session.id),
+                "class_session_id": str(session.class_session_id),
+                "course_code": offering.course.code,
+                "course_title": offering.course.title,
+                "class_name": class_definition.name,
+                "started_at": session.started_at,
+                "expires_at": session.expires_at,
+                "effective_end_at": session.effective_end_at,
+                "status": effective_status,
+                "mode": session.mode,
+                "present": present,
+                "total_eligible": eligible,
+            },
+            "records": AttendanceRecordSerializer(records, many=True).data,
+        })
+
 
 
 class MyAttendanceView(APIView):

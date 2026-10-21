@@ -50,13 +50,40 @@ class AttendanceCheckpointSerializer(serializers.ModelSerializer):
 class AttendanceRecordSerializer(serializers.ModelSerializer):
     student_email = serializers.CharField(source="student.email", read_only=True)
     student_name = serializers.SerializerMethodField()
+    student_number = serializers.SerializerMethodField()
+    department = serializers.SerializerMethodField()
+    level = serializers.SerializerMethodField()
 
     class Meta:
         model = AttendanceRecord
-        fields = ["id", "attendance_session", "student", "student_email", "student_name", "recorded_at", "verification_method", "status"]
+        fields = [
+            "id", "attendance_session", "student", "student_email", "student_name",
+            "student_number", "department", "level",
+            "recorded_at", "verification_method", "status",
+        ]
 
     def get_student_name(self, obj):
         return obj.student.get_full_name()
+
+    def _profile(self, obj):
+        # A student may not have a profile yet (roster import race, admin-only
+        # accounts). Reading through the reverse OneToOne can raise, so guard it.
+        return getattr(obj.student, "student_profile", None)
+
+    def get_student_number(self, obj):
+        profile = self._profile(obj)
+        return getattr(profile, "student_number", None) or ""
+
+    def get_department(self, obj):
+        profile = self._profile(obj)
+        department = getattr(profile, "department", None) if profile else None
+        if not department:
+            return ""
+        return department.name or department.code or ""
+
+    def get_level(self, obj):
+        profile = self._profile(obj)
+        return getattr(profile, "level", "") or ""
 
 
 class ScanRequestSerializer(serializers.Serializer):

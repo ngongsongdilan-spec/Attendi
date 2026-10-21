@@ -21,6 +21,7 @@ urlpatterns = [
     path("students/me/station/", views.MyStationView.as_view(), name="my-station"),
     path("attendance/scan/", views.ScanView.as_view(), name="attendance-scan"),
     path("attendance/<uuid:attendance_session_id>/", views.AttendanceStatusView.as_view(), name="attendance-status"),
+    path("attendance/<uuid:attendance_session_id>/records/", views.AttendanceSessionDetailView.as_view(), name="attendance-session-records"),
     path("class-sessions/<uuid:session_id>/attendance/records/", views.SessionRecordsView.as_view(), name="session-records"),
     path("students/me/attendance/", views.MyAttendanceView.as_view(), name="my-attendance"),
     path("attendance/records/<uuid:record_id>/", views.CorrectRecordView.as_view(), name="correct-record"),
