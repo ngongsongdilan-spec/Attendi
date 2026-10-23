@@ -1,4 +1,5 @@
 from django.contrib.auth.password_validation import validate_password
+from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
 from apps.academics.models import Department, Faculty
@@ -372,9 +373,19 @@ class MeSerializer(serializers.ModelSerializer):
 
 
 class ProfileUpdateSerializer(serializers.Serializer):
+    """Self-service profile edits.
+
+    Users may change their own name, contact details, bio and - with
+    uniqueness checks - their institutional email and student/staff number.
+    Department, role and account status remain administrator-managed.
+    """
+
     first_name = serializers.CharField(max_length=100, required=False)
     last_name = serializers.CharField(max_length=100, required=False)
     date_of_birth = serializers.DateField(required=False, allow_null=True)
+    email = serializers.EmailField(required=False)
+    student_number = serializers.CharField(max_length=30, required=False)
+    staff_number = serializers.CharField(max_length=30, required=False)
     level = serializers.CharField(max_length=20, required=False)
     bio = serializers.CharField(required=False, allow_blank=True)
     skills = serializers.ListField(child=serializers.CharField(), required=False)
@@ -382,6 +393,35 @@ class ProfileUpdateSerializer(serializers.Serializer):
     personal_email = serializers.EmailField(required=False, allow_blank=True)
     admission_year = serializers.IntegerField(required=False, min_value=1990, max_value=2100,
                                               allow_null=True)
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+        if value.endswith("@deleted.invalid"):
+            raise serializers.ValidationError("That email address is reserved.")
+        qs = User.objects.filter(email__iexact=value).exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError("An account with this email already exists.")
+        return value
+
+    def validate_student_number(self, value):
+        value = value.strip()
+        qs = StudentProfile.objects.filter(student_number__iexact=value)
+        profile = getattr(self.instance, "student_profile", None)
+        if profile is not None:
+            qs = qs.exclude(pk=profile.pk)
+        if qs.exists():
+            raise serializers.ValidationError("This matricule is already registered.")
+        return value
+
+    def validate_staff_number(self, value):
+        value = value.strip()
+        qs = LecturerProfile.objects.filter(staff_number__iexact=value)
+        profile = getattr(self.instance, "lecturer_profile", None)
+        if profile is not None:
+            qs = qs.exclude(pk=profile.pk)
+        if qs.exists():
+            raise serializers.ValidationError("This staff number is already registered.")
+        return value
 
     def validate_personal_email(self, value):
         if not value:
@@ -398,26 +438,62 @@ class ProfileUpdateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Level must be one of: L200, L300, L400, L500.")
         return value
 
+    def validate(self, attrs):
+        role = self.instance.role
+        if "student_number" in attrs:
+            if role != User.Role.STUDENT:
+                raise serializers.ValidationError(
+                    {"student_number": "Only students can have a matricule."}
+                )
+            if getattr(self.instance, "student_profile", None) is None:
+                raise serializers.ValidationError(
+                    {"student_number": "This account has no student profile."}
+                )
+        if "staff_number" in attrs:
+            if role != User.Role.LECTURER:
+                raise serializers.ValidationError(
+                    {"staff_number": "Only lecturers can have a staff number."}
+                )
+            if getattr(self.instance, "lecturer_profile", None) is None:
+                raise serializers.ValidationError(
+                    {"staff_number": "This account has no lecturer profile."}
+                )
+        return attrs
+
     def update(self, instance, validated_data):
         profile = getattr(instance, "student_profile", None) or getattr(
             instance, "lecturer_profile", None
         )
-        profile_fields = {"level", "bio", "skills", "achievements", "personal_email", "admission_year"}
+        profile_fields = {
+            "level", "bio", "skills", "achievements", "personal_email", "admission_year",
+            "student_number", "staff_number",
+        }
         profile_data = {k: v for k, v in validated_data.items() if k in profile_fields}
         user_fields = {k: v for k, v in validated_data.items() if k not in profile_fields}
 
-        for k, v in user_fields.items():
-            setattr(instance, k, v)
-        instance.save(update_fields=[*user_fields.keys(), "updated_at"] if user_fields else ["updated_at"])
+        try:
+            with transaction.atomic():
+                for k, v in user_fields.items():
+                    setattr(instance, k, v)
+                instance.save(
+                    update_fields=[*user_fields.keys(), "updated_at"]
+                    if user_fields else ["updated_at"]
+                )
 
-        if profile and profile_data:
-            def model_field(profile, key):
-                return "profile_bio" if key == "bio" and hasattr(profile, "profile_bio") else key
+                if profile and profile_data:
+                    def model_field(profile, key):
+                        return "profile_bio" if key == "bio" and hasattr(profile, "profile_bio") else key
 
-            mapped_fields = [model_field(profile, k) for k in profile_data]
-            for k, v in profile_data.items():
-                setattr(profile, model_field(profile, k), v)
-            profile.save(update_fields=[*mapped_fields, "updated_at"])
+                    mapped_fields = [model_field(profile, k) for k in profile_data]
+                    for k, v in profile_data.items():
+                        setattr(profile, model_field(profile, k), v)
+                    profile.save(update_fields=[*mapped_fields, "updated_at"])
+        except IntegrityError as exc:
+            # The serializer checks uniqueness first; this covers the race
+            # between that check and the write.
+            raise serializers.ValidationError(
+                "That email or registration number is already in use."
+            ) from exc
         return instance
 
 
