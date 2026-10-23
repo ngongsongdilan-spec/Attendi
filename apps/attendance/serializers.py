@@ -21,7 +21,7 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
         counts = self.context.get("present_by_session")
         if counts is not None:
             return counts.get(obj.id, 0)
-        return obj.records.count()
+        return obj.records.filter(status__in=["PRESENT", "LATE"]).count()
 
     def get_class_name(self, obj):
         return obj.class_session.class_definition.name

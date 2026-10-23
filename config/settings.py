@@ -232,10 +232,12 @@ else:
         }
     }
 
-# Read-only polling limits use a separate cache. Never use DatabaseCache for
-# these counters: every rejected poll would otherwise still hit PostgreSQL.
-# Redis makes limits shared across AWS workers; local memory is a useful
-# per-worker backstop for development and existing deployments without Redis.
+# Read-only polling *rate-limit counters* use a separate cache. Never use
+# DatabaseCache for these counters: every rejected poll would otherwise still
+# hit PostgreSQL. Redis makes limits shared across workers; local memory is a
+# useful per-worker backstop for development and existing deployments without
+# Redis. Attendance read values use the shared "default" cache instead (see
+# apps/attendance/read_cache.py) so every instance serves the same snapshot.
 CACHES["polling"] = (
     {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",

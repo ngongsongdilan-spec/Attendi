@@ -84,7 +84,8 @@ class TestStudentActivity:
         assert stats["attendance_present"] == 1
         assert stats["attendance_late"] == 1
         assert stats["attendance_absent"] == 1
-        assert stats["attendance_rate"] == 33
+        # PRESENT + LATE count as attended: 2 of 3 marked sessions.
+        assert stats["attendance_rate"] == 67
         assert stats["points_total"] == 10
         assert stats["points_by_category"]["SCAN"] == 4
         assert stats["projects_total"] == 1
@@ -95,7 +96,7 @@ class TestStudentActivity:
         row = data["attendance_by_course"][0]
         assert row["course_code"] == "CSC301"
         assert row["total"] == 3
-        assert row["rate"] == 33
+        assert row["rate"] == 67
 
         assert len(data["recent_attendance"]) == 3
         project = data["projects"][0]

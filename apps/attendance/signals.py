@@ -8,7 +8,7 @@ from apps.academics.models import Enrollment
 from .models import AttendanceCheckpoint, AttendanceRecord, AttendanceSession, PointsLedger
 from .read_cache import (
     checkpoints_key, eligibility_key, history_key, invalidate, points_key,
-    station_key, station_session_key, status_key,
+    station_key, station_scan_key, station_session_key, status_key,
 )
 
 
@@ -37,6 +37,11 @@ def checkpoint_changed(sender, instance, **kwargs):
 @receiver((post_save, post_delete), sender=AttendanceRecord)
 def record_changed(sender, instance, **kwargs):
     invalidate(history_key(instance.student_id))
+    # Live present counts and per-station scan counts are cached too; without
+    # this a new scan only appears after the short TTL on each instance.
+    invalidate(status_key(instance.attendance_session_id))
+    if instance.checkpoint_id:
+        invalidate(station_scan_key(instance.checkpoint_id))
 
 
 @receiver((post_save, post_delete), sender=PointsLedger)

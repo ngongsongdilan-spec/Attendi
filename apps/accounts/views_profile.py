@@ -56,7 +56,10 @@ def _attendance_summary(student):
         row[r.status.lower()] += 1
         row["total"] += 1
     for row in by_course.values():
-        row["rate"] = round(row["present"] / row["total"] * 100) if row["total"] else 0
+        # LATE still counts as attended, matching the dashboards and the
+        # attendance session snapshots.
+        attended = row["present"] + row["late"]
+        row["rate"] = round(attended / row["total"] * 100) if row["total"] else 0
 
     points_entries = list(
         PointsLedger.objects.filter(student=student)
@@ -84,7 +87,7 @@ def _attendance_summary(student):
         "late": late,
         "absent": absent,
         "total": total,
-        "rate": round(present / total * 100) if total else 0,
+        "rate": round((present + late) / total * 100) if total else 0,
         "by_course": sorted(by_course.values(), key=lambda x: x["course_code"]),
         "recent": recent,
         "points_total": points_total,

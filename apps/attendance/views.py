@@ -25,7 +25,7 @@ from apps.audit.services import audit
 
 from .models import AttendanceCheckpoint, AttendanceRecord, AttendanceSession, PointsLedger
 from .offline import record_v2_scan
-from .points import POINTS, award_manual_points, auto_select_stations
+from .points import POINTS, award_manual_points, award_station_points, auto_select_stations
 from .read_cache import (
     cached_read, history_key, is_enrolled, points_key, session_checkpoints,
     session_snapshot, station_assignment, station_scan_count,
@@ -551,20 +551,27 @@ class CheckpointsView(APIView):
                 course_offering=offering, status=Enrollment.Status.ACTIVE
             ).values_list("student_id", flat=True)
         )
-        checkpoints = []
+        enrolled_id_strings = {str(e) for e in enrolled_ids}
         for sid in student_ids:
-            if str(sid) not in {str(e) for e in enrolled_ids}:
+            if str(sid) not in enrolled_id_strings:
                 return Response(
                     {"success": False, "error": {"code": "NOT_ELIGIBLE", "message": f"Student {sid} is not enrolled in this course."}},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            # Idempotent: re-selecting a student does not raise a duplicate error.
-            cp, _created = AttendanceCheckpoint.objects.get_or_create(
-                attendance_session=session,
-                student_id=sid,
-                defaults={"checkpoint_number": session.checkpoints.count() + 1},
-            )
-            checkpoints.append(cp)
+        checkpoints = []
+        with transaction.atomic():
+            for sid in student_ids:
+                # Idempotent: re-selecting a student does not raise a duplicate error.
+                cp, created = AttendanceCheckpoint.objects.get_or_create(
+                    attendance_session=session,
+                    student_id=sid,
+                    defaults={"checkpoint_number": session.checkpoints.count() + 1},
+                )
+                if created:
+                    # Selecting a student as a station confirms their presence and
+                    # awards their station points immediately (not on first scan).
+                    award_station_points(session, cp)
+                checkpoints.append(cp)
         # Renumber so the stations read 1..n in the order chosen.
         for i, cp in enumerate(session.checkpoints.order_by("created_at"), 1):
             if cp.checkpoint_number != i:
@@ -889,7 +896,8 @@ class MyAttendanceSessionsView(APIView):
         present_by_session = {
             row["attendance_session_id"]: row["total"]
             for row in AttendanceRecord.objects.filter(
-                attendance_session_id__in=session_ids
+                attendance_session_id__in=session_ids,
+                status__in=["PRESENT", "LATE"],
             ).values("attendance_session_id").annotate(total=Count("id"))
         }
         eligible_by_offering = {
@@ -984,7 +992,7 @@ class AttendanceSessionDetailView(APIView):
         ).select_related(
             "student", "student__student_profile", "student__student_profile__department"
         )
-        present = records.count()
+        present = records.filter(status__in=["PRESENT", "LATE"]).count()
         eligible = Enrollment.objects.filter(
             course_offering=offering,
             status=Enrollment.Status.ACTIVE,

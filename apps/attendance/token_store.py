@@ -332,7 +332,7 @@ def validate_and_record_scan(token: str, requesting_user) -> dict:
         # Station capacity: ONLY auto-selected student stations serve at most
         # SCANS_PER_STATION classmates (FR-047). Teacher-selected stations and
         # projector checkpoints are unlimited.
-        from .points import SCANS_PER_STATION, award_scan_points, award_station_points
+        from .points import POINTS, SCANS_PER_STATION, award_scan_points, award_station_points
         from apps.notifications.models import Notification
 
         checkpoint = None
@@ -367,8 +367,8 @@ def validate_and_record_scan(token: str, requesting_user) -> dict:
             verification_method="QR_SCAN",
         )
 
-        # Points: scanners earn bonus points at student stations (5 vs 3);
-        # the station owner earns station points on first use (FR-048).
+        # Points: scanners earn 4 pts (projector or student station); the
+        # station owner earns 5 pts when assigned (idempotent here, FR-048).
         award_scan_points(session, requesting_user, checkpoint=checkpoint)
         is_student_station = checkpoint is not None and checkpoint.student.role == "STUDENT"
         if is_student_station:
@@ -385,7 +385,7 @@ def validate_and_record_scan(token: str, requesting_user) -> dict:
                         title="✅ Station complete - all scans used!",
                         message=(f"All {SCANS_PER_STATION} classmates have scanned your station in "
                                  f"{session.class_session.class_definition.course_offering.course.code}. "
-                                 "Your 10 station points are locked in."),
+                                 f"Your {POINTS['AUTO_STATION']} station points are locked in."),
                         reference_type="AttendanceSession",
                         reference_id=session.id,
                     )

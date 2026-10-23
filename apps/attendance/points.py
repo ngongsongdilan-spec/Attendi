@@ -1,13 +1,13 @@
 """Station auto-selection and points awarding (FR-047/048 + gamification).
 
 Points (settings-overridable):
-  AUTO_STATION      10 - system-selected station (a student proven present in
-                         THIS session via check-in, then automatically picked)
+  AUTO_STATION       5 - station picked by the system (the student is also
+                         marked present as soon as they are selected)
   STUDENT_OF_CLASS  10 - algorithm-picked star of the session (once per
                          student per course - never repeated for the same
                          course, still eligible for other courses)
-  TEACHER_STATION    5 - teacher-picked station (half of auto)
-  SCAN               3 - regular QR scan
+  TEACHER_STATION    5 - station picked by the lecturer
+  STATION_SCAN       4 - regular QR scan (projector or a classmate's station)
   MANUAL             0 - added manually after the session (discouraged)
 
 Special day (birthday): every award the student earns that day is DOUBLED.
@@ -23,10 +23,10 @@ from apps.academics.models import Enrollment
 from .models import AttendanceCheckpoint, AttendanceRecord, AttendanceSession, PointsLedger
 
 POINTS = {
-    "AUTO_STATION": getattr(settings, "ATTENDANCE_POINTS_AUTO_STATION", 10),
+    "AUTO_STATION": getattr(settings, "ATTENDANCE_POINTS_AUTO_STATION", 5),
     "TEACHER_STATION": getattr(settings, "ATTENDANCE_POINTS_TEACHER_STATION", 5),
-    "STATION_SCAN": getattr(settings, "ATTENDANCE_POINTS_STATION_SCAN", 5),
-    "SCAN": getattr(settings, "ATTENDANCE_POINTS_SCAN", 3),
+    "STATION_SCAN": getattr(settings, "ATTENDANCE_POINTS_STATION_SCAN", 4),
+    "SCAN": getattr(settings, "ATTENDANCE_POINTS_SCAN", 4),
     "MANUAL": getattr(settings, "ATTENDANCE_POINTS_MANUAL", 0),
     "STUDENT_OF_CLASS": getattr(settings, "ATTENDANCE_POINTS_STUDENT_OF_CLASS", 10),
 }
@@ -77,23 +77,23 @@ def _celebrate(user, base: int, category: str, session=None, when=None) -> int:
             user,
             f"+{final} points - station scan! ⚡",
             (f"Happy Birthday! 🎂 Doubled ({base} x{SPECIAL_DAY_MULTIPLIER})." if special
-             else f"You scanned at a classmate's station in {course} - station scans earn 5 pts instead of 3. Nice and fast!"),
+             else f"You scanned at a classmate's station in {course} - station scans earn {base} pts. Nice and fast!"),
             session=session,
         )
     elif category == PointsLedger.Category.AUTO_STATION:
         _notify_points(
             user,
-            f"⭐ Station duty complete: +{final} points!",
+            f"⭐ Station points locked in: +{final} points!",
             (f"Happy Birthday! 🎂 Your station bonus is DOUBLED ({base} x{SPECIAL_DAY_MULTIPLIER})." if special
-             else f"Classmates scanned your station in {course}. System-picked stations earn the most - keep attending to stay on top!"),
+             else f"The system picked you as a station in {course}. Your attendance is confirmed and your {base} station points are locked in - classmates can still scan your QR."),
             session=session,
         )
     elif category == PointsLedger.Category.TEACHER_STATION:
         _notify_points(
             user,
-            f"Station duty complete: +{final} points",
+            f"Station points locked in: +{final} points",
             (f"Happy Birthday! 🎂 Doubled ({base} x{SPECIAL_DAY_MULTIPLIER})." if special
-             else f"Your lecturer picked you as a station in {course}. Auto-picked stations earn double - attend consistently!"),
+             else f"Your lecturer picked you as a station in {course}. Your attendance is confirmed and your {base} station points are locked in."),
             session=session,
         )
     elif category == PointsLedger.Category.STUDENT_OF_CLASS:
@@ -150,10 +150,11 @@ def auto_select_stations(attendance_session: AttendanceSession, count: int = 3):
     absentee (no matter how consistent in the past) can never be picked.
 
     Hard cap: only MAX_AUTO_STATIONS (3) auto-selected stations exist in
-    the entire class per session. Each picked student is told the rules:
-    their station serves the first SCANS_PER_STATION (3) classmates, who
-    each earn bonus points - so they share the QR wisely, not just with
-    their closest friends.
+    the entire class per session. A picked student is marked present and
+    receives their station points immediately, whether or not anyone scans
+    their QR. Their station serves the first SCANS_PER_STATION (3)
+    classmates, who each earn bonus points - so they share the QR wisely,
+    not just with their closest friends.
 
     The session row is locked so two concurrent selections cannot both read
     the same checkpoint count and together exceed MAX_AUTO_STATIONS.
@@ -198,12 +199,16 @@ def auto_select_stations(attendance_session: AttendanceSession, count: int = 3):
             selection_method=AttendanceCheckpoint.SelectionMethod.AUTO,
         )
         created.append(cp)
+        # Being picked as a station confirms attendance and locks in the
+        # station points immediately - it must not depend on classmates scanning.
+        award_station_points(attendance_session, cp)
         _notify_points(
             cp.student,
             "🎯 You have been selected as a station!",
             (f"You are one of only {MAX_AUTO_STATIONS} auto-selected stations in class today. "
+             f"Your attendance is confirmed and you have {POINTS['AUTO_STATION']} station points. "
              f"Show your QR from the Attendance page - the first {SCANS_PER_STATION} classmates to scan "
-             f"earn {POINTS['STATION_SCAN']} pts each (regular scans only earn {POINTS['SCAN']}). "
+             f"earn {POINTS['STATION_SCAN']} pts each. "
              f"Share it fairly - your station locks after {SCANS_PER_STATION} scans!"),
             session=attendance_session,
         )
@@ -212,10 +217,13 @@ def auto_select_stations(attendance_session: AttendanceSession, count: int = 3):
 
 @transaction.atomic
 def award_station_points(attendance_session: AttendanceSession, checkpoint: AttendanceCheckpoint, when=None):
-    """On first successful scan at a station, confirm the station student
-    present and award their points (FR-048).
+    """Confirm the station student present and award their points (FR-048).
 
-    AUTO-selected -> full points; TEACHER-selected -> half points.
+    Called as soon as a station is assigned and again on scans; the ledger
+    unique constraint makes it idempotent, so the station student keeps
+    attendance and points even if nobody scans their QR.
+
+    AUTO- and TEACHER-selected student stations earn the same base points.
     Projector "stations" (lecturer-owned checkpoints) earn nothing.
     Doubled on the student's birthday.
 
@@ -224,8 +232,6 @@ def award_station_points(attendance_session: AttendanceSession, checkpoint: Atte
     """
     attendance_session = AttendanceSession.objects.select_for_update().get(id=attendance_session.id)
     if checkpoint.student.role != "STUDENT":
-        return
-    if PointsLedger.objects.filter(student=checkpoint.student, attendance_session=attendance_session).exists():
         return
     is_auto = checkpoint.selection_method == AttendanceCheckpoint.SelectionMethod.AUTO
     category = (
@@ -240,8 +246,25 @@ def award_station_points(attendance_session: AttendanceSession, checkpoint: Atte
             "status": "PRESENT",
         },
     )
+    entry = PointsLedger.objects.select_for_update().filter(
+        student=checkpoint.student, attendance_session=attendance_session,
+    ).first()
+    if entry is not None and entry.category in {
+        PointsLedger.Category.AUTO_STATION,
+        PointsLedger.Category.TEACHER_STATION,
+        PointsLedger.Category.STUDENT_OF_CLASS,
+    }:
+        return
     base = POINTS["AUTO_STATION" if is_auto else "TEACHER_STATION"]
     final = _celebrate(checkpoint.student, base, category, session=attendance_session, when=when)
+    if entry is not None:
+        # Auto stations must already have checked in, so they normally hold a
+        # scan entry (4 pts). Station duty replaces it with the station award
+        # instead of adding a second ledger row (one row per session).
+        entry.category = category
+        entry.points = final
+        entry.save(update_fields=["category", "points", "updated_at"])
+        return
     PointsLedger.objects.create(
         student=checkpoint.student,
         attendance_session=attendance_session,
