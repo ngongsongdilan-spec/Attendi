@@ -31,6 +31,75 @@ class UserPublicSerializer(serializers.ModelSerializer):
         return obj.get_full_name()
 
 
+class AdminUserSerializer(serializers.ModelSerializer):
+    """Admin directory row, including the deleted-account archive.
+
+    Only ``UserListView`` (``IsAdmin``) uses this. Original login identifiers
+    are kept in ``deleted_from_*`` so an administrator can still identify a
+    self-deleted account even though its email/matricule were released.
+    """
+
+    full_name = serializers.SerializerMethodField()
+    student_number = serializers.SerializerMethodField()
+    staff_number = serializers.SerializerMethodField()
+    department = serializers.SerializerMethodField()
+    level = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "email",
+            "first_name",
+            "last_name",
+            "full_name",
+            "role",
+            "status",
+            "is_active",
+            "last_login_at",
+            "created_at",
+            "student_number",
+            "staff_number",
+            "department",
+            "level",
+            "deleted_at",
+            "deletion_reason",
+            "deletion_improvement",
+            "deleted_from_email",
+            "deleted_from_personal_email",
+            "deleted_from_student_number",
+            "deleted_from_staff_number",
+        ]
+        read_only_fields = fields
+
+    def get_full_name(self, obj):
+        return obj.get_full_name()
+
+    @staticmethod
+    def _profile(obj, name):
+        return getattr(obj, name, None)
+
+    def get_student_number(self, obj):
+        if obj.deleted_at:
+            return obj.deleted_from_student_number
+        profile = self._profile(obj, "student_profile")
+        return profile.student_number if profile else None
+
+    def get_staff_number(self, obj):
+        if obj.deleted_at:
+            return obj.deleted_from_staff_number
+        profile = self._profile(obj, "lecturer_profile")
+        return profile.staff_number if profile else None
+
+    def get_department(self, obj):
+        profile = self._profile(obj, "student_profile") or self._profile(obj, "lecturer_profile")
+        return profile.department.name if profile and profile.department else None
+
+    def get_level(self, obj):
+        profile = self._profile(obj, "student_profile")
+        return profile.level if profile else None
+
+
 class RegisterSerializer(serializers.Serializer):
     """Admin-only user creation."""
     email = serializers.EmailField()
@@ -193,6 +262,29 @@ class SelfRegisterSerializer(serializers.Serializer):
                 department=department,
             )
         return user
+
+
+class DeleteAccountSerializer(serializers.Serializer):
+    """Strong confirmation + exit feedback for self-deletion."""
+
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+    confirm = serializers.CharField(write_only=True)
+    reason = serializers.ChoiceField(choices=User.DeletionReason.choices)
+    improvement = serializers.CharField(
+        required=False, allow_blank=True, max_length=2000, trim_whitespace=True
+    )
+
+    def validate_confirm(self, value):
+        if value.strip().upper() != "DELETE":
+            raise serializers.ValidationError('Type "DELETE" to confirm.')
+        return value
+
+    def validate(self, attrs):
+        if attrs["reason"] == User.DeletionReason.OTHER and not attrs.get("improvement", "").strip():
+            raise serializers.ValidationError(
+                {"improvement": "Please tell us what went wrong or what we could improve."}
+            )
+        return attrs
 
 
 class MeSerializer(serializers.ModelSerializer):

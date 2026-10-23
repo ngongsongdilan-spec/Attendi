@@ -1,4 +1,5 @@
 """User management endpoints (API Spec doc 07 §14)."""
+from django.db.models import Q
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -9,7 +10,7 @@ from apps.audit.services import audit
 from apps.core.scoping import can_view_user, scope_users
 
 from .models import StudentProfile, User
-from .serializers import MeSerializer, UserPublicSerializer
+from .serializers import AdminUserSerializer, MeSerializer
 
 
 class MyCoursesView(APIView):
@@ -25,11 +26,25 @@ class UserListView(APIView):
         qs = scope_users(User.objects.select_related("student_profile", "lecturer_profile"), request.user)
         if role:
             qs = qs.filter(role=role.upper())
+        deleted = request.query_params.get("deleted")
+        if deleted == "1":
+            qs = qs.filter(deleted_at__isnull=False)
+        elif deleted == "0":
+            qs = qs.filter(deleted_at__isnull=True)
         search = (request.query_params.get("search") or "").strip()
         if search:
-            qs = qs.filter(email__icontains=search)
-        qs = qs.order_by("email")[:50]
-        return Response(UserPublicSerializer(qs, many=True).data)
+            qs = qs.filter(
+                Q(email__icontains=search)
+                | Q(deleted_from_email__icontains=search)
+                | Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+                | Q(deleted_from_student_number__icontains=search)
+                | Q(deleted_from_staff_number__icontains=search)
+                | Q(student_profile__student_number__icontains=search)
+                | Q(lecturer_profile__staff_number__icontains=search)
+            )
+        qs = qs.order_by("email")[:200]
+        return Response(AdminUserSerializer(qs, many=True).data)
 
 
 class UserDetailView(APIView):
@@ -54,6 +69,17 @@ class UserDetailView(APIView):
         from django.shortcuts import get_object_or_404
 
         user = get_object_or_404(User, id=user_id)
+        if user.deleted_at:
+            return Response(
+                {
+                    "success": False,
+                    "error": {
+                        "code": "ACCOUNT_DELETED",
+                        "message": "This account was deleted by its owner. Its data is archived for administrators and the login cannot be restored.",
+                    },
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if "role" in request.data:
             return Response({"error": "Use the admin account assignment endpoint to change roles."},
                             status=status.HTTP_400_BAD_REQUEST)

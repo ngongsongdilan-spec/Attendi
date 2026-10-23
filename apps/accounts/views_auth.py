@@ -33,6 +33,7 @@ from .authentication import (
 from .emails import send_password_changed_email, send_password_reset_otp_email
 from .serializers import (
     ConfirmResetSerializer,
+    DeleteAccountSerializer,
     MeSerializer,
     RegisterSerializer,
     RequestOtpSerializer,
@@ -295,37 +296,134 @@ class MeView(APIView):
 class DeleteAccountView(APIView):
     """DELETE /api/v1/auth/account/ — delete the signed-in user's own account.
 
-    Available to every role (student, lecturer, admin). This is a *soft* delete:
-    the row is deactivated and archived and every refresh token is revoked, so the
-    account can never sign in again, while the academic records that reference it
-    (attendance, submissions, marks) stay intact for the institution.
+    Available to every role (student, lecturer, admin). Requires the current
+    password, the literal confirmation ``DELETE``, and an exit reason.
+
+    The account is deactivated and archived, every refresh token is revoked,
+    and the login identifiers are released:
+      * the row gets a tombstone email so the real email is free to register
+        again,
+      * the matricule/staff number is moved to the admin-only archive fields
+        and cleared from the profile.
+    The academic records (attendance, submissions, marks, projects) stay
+    attached to the old row and remain visible to administrators only.
     """
 
     permission_classes = [IsAuthenticated]
 
     def delete(self, request):
+        serializer = DeleteAccountSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
         user = request.user
 
-        # Row lock + atomic so the revoke/deactivate happens as one step even if
+        if not check_password(data["password"], user.password):
+            return Response(
+                {"success": False, "error": {"code": "FORBIDDEN", "message": "Current password is incorrect."}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Row lock + atomic so the revoke/anonymise happens as one step even if
         # the request is retried or races another session for the same account.
         with transaction.atomic():
             locked = User.objects.select_for_update().get(pk=user.pk)
-            _revoke_all_refresh_tokens(locked)
+            if locked.deleted_at:
+                return Response(
+                    {"success": False, "error": {"code": "ACCOUNT_DELETED", "message": "This account is already deleted."}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Never let the last active system administrator lock everyone out.
+            if locked.role == User.Role.SYSTEM_ADMIN:
+                other_admins = User.objects.filter(
+                    role=User.Role.SYSTEM_ADMIN,
+                    is_active=True,
+                    status=User.Status.ACTIVE,
+                    deleted_at__isnull=True,
+                ).exclude(pk=locked.pk)
+                if not other_admins.exists():
+                    return Response(
+                        {
+                            "success": False,
+                            "error": {
+                                "code": "LAST_SYSTEM_ADMIN",
+                                "message": "You are the last active system administrator. Promote another administrator before deleting this account.",
+                            },
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            student_profile = getattr(locked, "student_profile", None)
+            lecturer_profile = getattr(locked, "lecturer_profile", None)
+
+            locked.deleted_at = timezone.now()
+            locked.deletion_reason = data["reason"]
+            locked.deletion_improvement = data.get("improvement", "")
+            locked.deleted_from_email = locked.email
+            locked.email = f"deleted-{locked.id}@deleted.invalid"
             locked.is_active = False
             locked.status = User.Status.ARCHIVED
+            locked.must_change_password = False
             locked.reset_otp_hash = None
             locked.reset_otp_expires = None
             locked.reset_otp_attempts = 0
+            locked.set_unusable_password()
+
+            if student_profile is not None:
+                locked.deleted_from_personal_email = student_profile.personal_email
+                locked.deleted_from_student_number = student_profile.student_number
+                student_profile.student_number = None
+                student_profile.personal_email = None
+                student_profile.profile_image_reference = ""
+                student_profile.profile_bio = ""
+                student_profile.skills = []
+                student_profile.achievements = []
+                student_profile.save(
+                    update_fields=[
+                        "student_number",
+                        "personal_email",
+                        "profile_image_reference",
+                        "profile_bio",
+                        "skills",
+                        "achievements",
+                        "updated_at",
+                    ]
+                )
+            elif lecturer_profile is not None:
+                locked.deleted_from_staff_number = lecturer_profile.staff_number
+                lecturer_profile.staff_number = None
+                lecturer_profile.profile_image_reference = ""
+                lecturer_profile.bio = ""
+                lecturer_profile.save(
+                    update_fields=[
+                        "staff_number",
+                        "profile_image_reference",
+                        "bio",
+                        "updated_at",
+                    ]
+                )
+
             locked.save(
                 update_fields=[
+                    "deleted_at",
+                    "deletion_reason",
+                    "deletion_improvement",
+                    "deleted_from_email",
+                    "deleted_from_personal_email",
+                    "deleted_from_student_number",
+                    "deleted_from_staff_number",
+                    "email",
                     "is_active",
                     "status",
+                    "must_change_password",
                     "reset_otp_hash",
                     "reset_otp_expires",
                     "reset_otp_attempts",
+                    "password",
                     "updated_at",
                 ]
             )
+            _revoke_all_refresh_tokens(locked)
 
         audit(
             user=user,
@@ -333,9 +431,14 @@ class DeleteAccountView(APIView):
             resource_type="User",
             resource_id=user.id,
             request=request,
-            metadata={"email": user.email, "role": user.role},
+            metadata={"reason": data["reason"], "role": user.role},
         )
-        resp = Response({"message": "Your account has been deleted."}, status=status.HTTP_200_OK)
+        resp = Response(
+            {
+                "message": "Your account has been deleted. Your academic records are kept by the school and are visible to administrators only."
+            },
+            status=status.HTTP_200_OK,
+        )
         clear_jwt_cookies(resp)
         return resp
 

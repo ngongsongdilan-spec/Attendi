@@ -43,6 +43,14 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedUUIDModel):
         SUSPENDED = "SUSPENDED", "Suspended"
         ARCHIVED = "ARCHIVED", "Archived"
 
+    class DeletionReason(models.TextChoices):
+        NO_LONGER_NEEDED = "NO_LONGER_NEEDED", "I no longer need the account"
+        GRADUATED = "GRADUATED", "I graduated or left the university"
+        PRIVACY = "PRIVACY", "Privacy concerns"
+        TOO_MANY_ISSUES = "TOO_MANY_ISSUES", "Problems or bugs with the platform"
+        SWITCHING_ACCOUNT = "SWITCHING_ACCOUNT", "I want to create a new account"
+        OTHER = "OTHER", "Other"
+
     email = models.EmailField(unique=True, db_index=True)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
@@ -68,6 +76,19 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedUUIDModel):
     reset_otp_hash = models.CharField(max_length=64, null=True, blank=True, db_index=True)
     reset_otp_expires = models.DateTimeField(null=True, blank=True)
     reset_otp_attempts = models.PositiveIntegerField(default=0)
+
+    # Self-deletion keeps the academic records but releases the identifiers so
+    # the owner can register again. The original login identifiers are retained
+    # here for administrators only; they are never used for authentication.
+    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    deletion_reason = models.CharField(
+        max_length=30, choices=DeletionReason.choices, blank=True, default=""
+    )
+    deletion_improvement = models.TextField(blank=True, default="")
+    deleted_from_email = models.EmailField(null=True, blank=True)
+    deleted_from_personal_email = models.EmailField(null=True, blank=True)
+    deleted_from_student_number = models.CharField(max_length=30, null=True, blank=True)
+    deleted_from_staff_number = models.CharField(max_length=30, null=True, blank=True)
 
     objects = UserManager()
 
