@@ -48,7 +48,9 @@ def scope_filter_for(user):
         # comes from a class definition or from being the assigned lecturer.
         teaching = set(user.class_definitions.values_list("course_offering_id", flat=True))
         teaching |= set(
-            CourseOffering.objects.filter(lecturer_id=user.id).values_list("id", flat=True)
+            CourseOffering.objects.filter(
+                db_models.Q(lecturer_id=user.id) | db_models.Q(co_lecturer_id=user.id)
+            ).values_list("id", flat=True)
         )
         q = db_models.Q(
             scope_type=Announcement.ScopeType.COURSE, course_offering_id__in=teaching
@@ -143,7 +145,9 @@ class AnnouncementListView(APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
             # BR-083: course announcements belong to the assigned lecturer.
-            if request.user.role not in ADMIN_ROLES and offering.lecturer_id != request.user.id:
+            if request.user.role not in ADMIN_ROLES and request.user.id not in {
+                offering.lecturer_id, offering.co_lecturer_id,
+            }:
                 return Response(
                     {"success": False, "error": {
                         "code": "FORBIDDEN",

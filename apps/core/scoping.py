@@ -41,7 +41,24 @@ def can_administer_department(user, department):
 
 
 def can_administer_offering(user, offering):
-    return can_administer_department(user, offering.department)
+    """Departments attached to the offering (primary or shared) may manage it."""
+    if can_administer_department(user, offering.department):
+        return True
+    if not is_admin(user) or not getattr(offering, "pk", None):
+        return False
+    return any(can_administer_department(user, d) for d in offering.departments.all())
+
+
+def is_offering_teacher(user, offering):
+    """True for the lead lecturer or an optional co-lecturer of an offering."""
+    if not user or not getattr(user, "is_authenticated", False) or offering is None:
+        return False
+    return user.id in {offering.lecturer_id, offering.co_lecturer_id}
+
+
+def offering_teacher_filter(user, prefix=""):
+    """Q object matching offerings taught by `user` as lead or co-lecturer."""
+    return Q(**{f"{prefix}lecturer": user}) | Q(**{f"{prefix}co_lecturer": user})
 
 
 def scope_by_department(queryset, user, path="department"):

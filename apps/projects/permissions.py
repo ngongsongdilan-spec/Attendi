@@ -17,7 +17,10 @@ decided in exactly one place. The rules:
 from django.db import models as db_models
 
 from apps.core.permissions import ADMIN_ROLES, STAFF_ROLES
-from apps.core.scoping import can_administer_offering, is_admin as has_admin_scope, scope_by_department
+from apps.core.scoping import (
+    can_administer_offering, is_admin as has_admin_scope, is_offering_teacher,
+    scope_by_department,
+)
 
 from .models import ClassDelegate, Project, ProjectGroup, ProjectMember
 
@@ -35,7 +38,7 @@ def offering_lecturer_id(project):
 
 
 def is_offering_lecturer(user, project):
-    return user.is_authenticated and user.id == offering_lecturer_id(project)
+    return user.is_authenticated and is_offering_teacher(user, project.course_offering)
 
 
 def is_supervisor(user, project):
@@ -227,6 +230,7 @@ def visible_projects(user):
             db_models.Q(supervisor=user)
             | db_models.Q(created_by=user)
             | db_models.Q(course_offering__lecturer=user)
+            | db_models.Q(course_offering__co_lecturer=user)
         )
     if user.role == "STUDENT":
         member_ids = ProjectMember.objects.filter(student=user).values_list("project_id", flat=True)

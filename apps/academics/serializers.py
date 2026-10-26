@@ -53,13 +53,25 @@ class CourseOfferingSerializer(serializers.ModelSerializer):
     semester_name = serializers.CharField(source="semester.name", read_only=True)
     department_name = serializers.CharField(source="department.name", read_only=True)
     lecturer_name = serializers.SerializerMethodField()
+    co_lecturer_name = serializers.SerializerMethodField()
+    department_names = serializers.SerializerMethodField()
 
     class Meta:
         model = CourseOffering
-        fields = ["id", "course", "course_code", "course_title", "semester", "semester_name", "department", "department_name", "lecturer", "lecturer_name", "status"]
+        fields = [
+            "id", "course", "course_code", "course_title", "semester", "semester_name",
+            "department", "department_name", "departments", "department_names",
+            "lecturer", "lecturer_name", "co_lecturer", "co_lecturer_name", "status",
+        ]
 
     def get_lecturer_name(self, obj):
         return obj.lecturer.get_full_name() if obj.lecturer else ""
+
+    def get_co_lecturer_name(self, obj):
+        return obj.co_lecturer.get_full_name() if obj.co_lecturer else ""
+
+    def get_department_names(self, obj):
+        return [d.name for d in obj.departments.all()]
 
 
 class EnrollmentSerializer(serializers.ModelSerializer):

@@ -100,6 +100,18 @@ class CourseOffering(TimeStampedUUIDModel):
     lecturer = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="offering_lectures"
     )
+    co_lecturer = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="co_offering_lectures",
+        help_text="Optional second lecturer when the course is co-taught.",
+    )
+    # Extra departments whose students may register for this offering. The
+    # primary `department` above always applies as well; this M2M only extends
+    # the audience for cross-department courses.
+    departments = models.ManyToManyField(
+        Department, blank=True, related_name="shared_course_offerings",
+        help_text="Additional departments allowed to register for this offering.",
+    )
     status = models.CharField(max_length=20, default="ACTIVE")
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -116,6 +128,24 @@ class CourseOffering(TimeStampedUUIDModel):
             raise ValidationError(
                 {"department": "The offering department must match the course's department."}
             )
+        if self.lecturer_id and self.co_lecturer_id and self.lecturer_id == self.co_lecturer_id:
+            raise ValidationError(
+                {"co_lecturer": "The co-lecturer must be a different person from the lead lecturer."}
+            )
+
+    @property
+    def lecturer_ids(self):
+        return {pk for pk in (self.lecturer_id, self.co_lecturer_id) if pk}
+
+    def is_taught_by(self, user):
+        """True when `user` is the lead or co-lecturer of this offering."""
+        return bool(getattr(user, "is_authenticated", False) and user.id in self.lecturer_ids)
+
+    @property
+    def all_department_ids(self):
+        """Primary department plus every shared department."""
+        extra = set(self.departments.values_list("id", flat=True)) if self.pk else set()
+        return ({self.department_id} if self.department_id else set()) | extra
 
     def __str__(self):
         return f"{self.course.code} - {self.semester.name}"

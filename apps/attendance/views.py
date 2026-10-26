@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -18,7 +18,7 @@ from rest_framework.views import APIView
 
 from apps.academics.models import ClassDefinition, ClassSchedule, ClassSession, CourseOffering, Enrollment
 from apps.academics.services import enroll_cohort
-from apps.core.scoping import can_administer_offering, scope_by_department
+from apps.core.scoping import can_administer_offering, is_offering_teacher, scope_by_department
 from apps.core.permissions import IsLecturer, IsLecturerOrAdmin, IsStudent
 from apps.core.throttling import PollingRateThrottle
 from apps.audit.services import audit
@@ -49,7 +49,11 @@ ADMIN_ROLES = {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}
 def _can_manage_attendance(user, offering, lecturer_id):
     if user.role in ADMIN_ROLES:
         return can_administer_offering(user, offering)
-    return user.role == "LECTURER" and lecturer_id == user.id
+    if user.role != "LECTURER":
+        return False
+    # A co-lecturer may run attendance for the offering even when another
+    # lecturer owns the class definition or opened the session.
+    return lecturer_id == user.id or is_offering_teacher(user, offering)
 
 
 def _parse_headcount(value):
@@ -781,7 +785,7 @@ class ProjectorCredentialView(APIView):
 
     def get(self, request, attendance_session_id):
         session = get_object_or_404(AttendanceSession, id=attendance_session_id)
-        if session.lecturer_id != request.user.id:
+        if not _can_manage_attendance(request.user, session.course_offering, session.lecturer_id):
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Only this session's lecturer can use the projector credential."}},
                 status=status.HTTP_403_FORBIDDEN,
@@ -877,7 +881,10 @@ class MyAttendanceSessionsView(APIView):
     throttle_scope = "attendance_live_poll"
 
     def get(self, request):
-        qs = AttendanceSession.objects.filter(lecturer=request.user).select_related(
+        qs = AttendanceSession.objects.filter(
+            Q(lecturer=request.user)
+            | Q(class_session__class_definition__course_offering__co_lecturer=request.user)
+        ).select_related(
             "class_session",
             "class_session__class_definition",
             "class_session__class_definition__course_offering__course",
@@ -944,11 +951,11 @@ class SessionRecordsView(APIView):
     def get(self, request, session_id):
         cs = get_object_or_404(ClassSession, id=session_id)
         owner = cs.class_definition.lecturer_id
-        offering_lecturer = cs.class_definition.course_offering.lecturer_id
+        offering = cs.class_definition.course_offering
         if request.user.role in ADMIN_ROLES:
-            allowed = can_administer_offering(request.user, cs.class_definition.course_offering)
+            allowed = can_administer_offering(request.user, offering)
         else:
-            allowed = request.user.id in {owner, offering_lecturer}
+            allowed = request.user.id == owner or is_offering_teacher(request.user, offering)
         if not allowed:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "You can only view attendance for classes you teach."}},
@@ -976,11 +983,10 @@ class AttendanceSessionDetailView(APIView):
         class_definition = session.class_session.class_definition
         offering = class_definition.course_offering
         owner = class_definition.lecturer_id
-        offering_lecturer = offering.lecturer_id
         if request.user.role in ADMIN_ROLES:
             allowed = can_administer_offering(request.user, offering)
         else:
-            allowed = request.user.id in {owner, offering_lecturer}
+            allowed = request.user.id == owner or is_offering_teacher(request.user, offering)
         if not allowed:
             return Response(
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "You can only view attendance for classes you teach."}},

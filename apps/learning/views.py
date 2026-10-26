@@ -10,6 +10,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -22,7 +23,7 @@ from apps.academics.models import Course, CourseOffering, Enrollment, Semester
 from apps.accounts.models import User
 from apps.audit.services import audit
 from apps.core.permissions import ADMIN_ROLES
-from apps.core.scoping import can_administer_offering, is_admin, scope_by_department
+from apps.core.scoping import can_administer_offering, is_admin, is_offering_teacher, scope_by_department
 
 from .models import (
     Assessment,
@@ -69,7 +70,7 @@ def _can_manage_offering(request, offering):
     """BR-072: lecturers may only manage offerings assigned to them; admins broad."""
     if request.user.role in ADMIN_ROLES:
         return can_administer_offering(request.user, offering)
-    return request.user.role == "LECTURER" and offering.lecturer_id == request.user.id
+    return request.user.role == "LECTURER" and is_offering_teacher(request.user, offering)
 
 
 def _is_enrolled(user, offering):
@@ -107,11 +108,20 @@ def _can_access_file(user, uploaded_file):
         "course_offering_id", flat=True
     )
     if user.role == "LECTURER":
-        if CourseOffering.objects.filter(id__in=material_offering_ids, lecturer=user).exists():
+        if CourseOffering.objects.filter(
+            Q(lecturer=user) | Q(co_lecturer=user), id__in=material_offering_ids
+        ).exists():
             return True
-        if AssignmentSubmission.objects.filter(file=uploaded_file, assignment__course_offering__lecturer=user).exists():
+        if AssignmentSubmission.objects.filter(
+            Q(assignment__course_offering__lecturer=user)
+            | Q(assignment__course_offering__co_lecturer=user),
+            file=uploaded_file,
+        ).exists():
             return True
-        if Assessment.objects.filter(attachment=uploaded_file, course_offering__lecturer=user).exists():
+        if Assessment.objects.filter(
+            Q(course_offering__lecturer=user) | Q(course_offering__co_lecturer=user),
+            attachment=uploaded_file,
+        ).exists():
             return True
         return ProjectDocument.objects.filter(file=uploaded_file, project__supervisor=user).exists()
     if user.role == "STUDENT":

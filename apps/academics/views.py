@@ -15,7 +15,7 @@ from apps.accounts.models import User
 from apps.core.permissions import IsAdmin, IsLecturerOrAdmin
 from apps.core.scoping import (
     can_administer_department, can_administer_offering, is_admin,
-    scope_by_department, scope_users,
+    is_offering_teacher, scope_by_department, scope_users,
 )
 from apps.audit.services import audit
 from apps.learning.models import Assessment, AssessmentMark, AssignmentSubmission
@@ -223,11 +223,24 @@ class CourseOfferingListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        qs = CourseOffering.objects.select_related("course", "semester", "department").all()
-        for param in ("course_id", "semester_id", "department_id"):
+        qs = (
+            CourseOffering.objects
+            .select_related("course", "semester", "department", "lecturer", "co_lecturer")
+            .prefetch_related("departments")
+            .all()
+        )
+        for param in ("course_id", "semester_id"):
             val = request.query_params.get(param)
             if val:
                 qs = qs.filter(**{param: val})
+        department_id = request.query_params.get("department_id")
+        if department_id:
+            # A cross-department offering is listed for every department that
+            # can register for it, not only its primary department.
+            qs = qs.filter(
+                db_models.Q(department_id=department_id)
+                | db_models.Q(departments__id=department_id)
+            ).distinct()
         return Response(CourseOfferingSerializer(qs, many=True).data)
 
 
@@ -245,10 +258,16 @@ class CourseOfferingCreateView(APIView):
         ):
             return Response(status=status.HTTP_403_FORBIDDEN)
         lecturer = s.validated_data.get("lecturer")
-        if lecturer and request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not scope_users(
-            User.objects.filter(id=lecturer.id), request.user
-        ).exists():
-            return Response(status=status.HTTP_403_FORBIDDEN)
+        co_lecturer = s.validated_data.get("co_lecturer")
+        if lecturer and co_lecturer and lecturer.id == co_lecturer.id:
+            return Response(
+                {"error": "The co-lecturer must be different from the lead lecturer."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN}:
+            for teacher in (lecturer, co_lecturer):
+                if teacher and not scope_users(User.objects.filter(id=teacher.id), request.user).exists():
+                    return Response(status=status.HTTP_403_FORBIDDEN)
         offering = s.save()
         return Response(CourseOfferingSerializer(offering).data, status=status.HTTP_201_CREATED)
 
@@ -263,28 +282,69 @@ class CourseOfferingDetailView(APIView):
     def patch(self, request, offering_id):
         if not IsAdmin().has_permission(request, self):
             return Response(
-                {"success": False, "error": {"code": "FORBIDDEN", "message": "Only administrators can assign course lecturers."}},
+                {"success": False, "error": {"code": "FORBIDDEN", "message": "Only administrators can manage course offerings."}},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if "lecturer" not in request.data:
+        editable = {"lecturer", "co_lecturer", "departments"}
+        if not editable.intersection(request.data):
             return Response(
-                {"success": False, "error": {"code": "VALIDATION_ERROR", "message": "lecturer is required; use null to unassign."}},
+                {"success": False, "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Send at least one of: lecturer, co_lecturer, departments.",
+                }},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         offering = get_object_or_404(CourseOffering, id=offering_id)
         if not can_administer_offering(request.user, offering):
             return Response(status=status.HTTP_403_FORBIDDEN)
-        lecturer_id = request.data.get("lecturer")
-        lecturer = None
-        if lecturer_id:
-            lecturer = get_object_or_404(
-                User, id=lecturer_id, role="LECTURER", is_active=True, status=User.Status.ACTIVE
+
+        def _resolve_teacher(key):
+            """Validate one optional lecturer field; returns (sent, value)."""
+            if key not in request.data:
+                return False, None
+            teacher_id = request.data.get(key)
+            if not teacher_id:
+                return True, None
+            teacher = get_object_or_404(
+                User, id=teacher_id, role="LECTURER", is_active=True, status=User.Status.ACTIVE
             )
             if request.user.role != User.Role.SYSTEM_ADMIN and not scope_users(
-                User.objects.filter(id=lecturer.id), request.user
+                User.objects.filter(id=teacher.id), request.user
             ).exists():
-                return Response(status=status.HTTP_403_FORBIDDEN)
+                raise PermissionError
+            return True, teacher
+
+        try:
+            lecturer_sent, lecturer = _resolve_teacher("lecturer")
+            co_sent, co_lecturer = _resolve_teacher("co_lecturer")
+        except PermissionError:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        department_ids = None
+        if "departments" in request.data:
+            raw_ids = request.data.get("departments") or []
+            if not isinstance(raw_ids, list):
+                return Response(
+                    {"success": False, "error": {"code": "VALIDATION_ERROR", "message": "departments must be a list of department ids."}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            departments = list(Department.objects.filter(id__in=raw_ids))
+            requested_ids = {str(i) for i in raw_ids}
+            if len(departments) != len(requested_ids):
+                return Response(
+                    {"success": False, "error": {"code": "VALIDATION_ERROR", "message": "One or more departments do not exist."}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            department_ids = [d.id for d in departments]
+
+        final_lecturer_id = (lecturer.id if lecturer else None) if lecturer_sent else offering.lecturer_id
+        final_co_id = (co_lecturer.id if co_lecturer else None) if co_sent else offering.co_lecturer_id
+        if final_lecturer_id and final_co_id and final_lecturer_id == final_co_id:
+            return Response(
+                {"success": False, "error": {"code": "VALIDATION_ERROR", "message": "The co-lecturer must be different from the lead lecturer."}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Assigning a lecturer must hand them a ready-to-use classroom: the
         # offering is theirs (so it shows on their panel and attendance works),
@@ -293,17 +353,28 @@ class CourseOfferingDetailView(APIView):
         with transaction.atomic():
             offering = CourseOffering.objects.select_for_update().get(id=offering_id)
             previous_lecturer_id = offering.lecturer_id
-            offering.lecturer = lecturer
-            offering.save(update_fields=["lecturer", "updated_at"])
-            if lecturer is not None and not Enrollment.objects.filter(course_offering=offering).exists():
+            if lecturer_sent:
+                offering.lecturer = lecturer
+            if co_sent:
+                offering.co_lecturer = co_lecturer
+            if lecturer_sent or co_sent:
+                offering.save(update_fields=["lecturer", "co_lecturer", "updated_at"])
+            if lecturer_sent and lecturer is not None and not Enrollment.objects.filter(course_offering=offering).exists():
                 enroll_cohort(offering)
+            if department_ids is not None:
+                offering.departments.set(department_ids)
         audit(
             user=request.user,
-            action="COURSE_LECTURER_ASSIGNED",
+            action="COURSE_OFFERING_UPDATED",
             resource_type="CourseOffering",
             resource_id=offering.id,
             request=request,
-            metadata={"previous_lecturer_id": str(previous_lecturer_id or ""), "lecturer_id": str(lecturer.id if lecturer else "")},
+            metadata={
+                "previous_lecturer_id": str(previous_lecturer_id or ""),
+                "lecturer_id": str(offering.lecturer_id or ""),
+                "co_lecturer_id": str(offering.co_lecturer_id or ""),
+                "shared_department_ids": [str(i) for i in (department_ids or [])],
+            },
         )
         return Response(CourseOfferingSerializer(offering).data)
 
@@ -366,7 +437,7 @@ class EnrollmentListView(APIView):
             return Response(status=status.HTTP_403_FORBIDDEN)
         if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not can_administer_offering(request.user, offering):
             return Response(status=status.HTTP_403_FORBIDDEN)
-        if request.user.role == User.Role.LECTURER and offering.lecturer_id != request.user.id:
+        if request.user.role == User.Role.LECTURER and not is_offering_teacher(request.user, offering):
             return Response(status=status.HTTP_403_FORBIDDEN)
         enrollment = get_object_or_404(Enrollment, student_id=student_id, course_offering=offering, status=Enrollment.Status.ACTIVE)
         enrollment.status = Enrollment.Status.DROPPED
@@ -435,11 +506,12 @@ class StudentRegistrationView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         available = CourseOffering.objects.filter(
-            department=profile.department,
+            db_models.Q(department=profile.department)
+            | db_models.Q(departments=profile.department),
             semester=active_semester,
             status="ACTIVE",
             course__level=profile.level,
-        ).select_related("course", "department", "semester", "lecturer")
+        ).select_related("course", "department", "semester", "lecturer", "co_lecturer").distinct()
 
         already_enrolled = set(
             Enrollment.objects.filter(
@@ -497,7 +569,8 @@ class StudentRegistrationView(APIView):
             )
         available = set(
             CourseOffering.objects.filter(
-                department=profile.department,
+                db_models.Q(department=profile.department)
+                | db_models.Q(departments=profile.department),
                 semester=active_semester,
                 status="ACTIVE",
                 course__level=profile.level,
@@ -624,18 +697,20 @@ class EligibleStudentsView(APIView):
         from apps.attendance.models import AttendanceSession
 
         cs = get_object_or_404(ClassSession, id=session_id)
-        owner = cs.class_definition.lecturer_id
-        offering_lecturer = cs.class_definition.course_offering.lecturer_id
+        offering = cs.class_definition.course_offering
         # Whoever is actually running attendance for this class needs the roster,
-        # even if they are not the class owner (e.g. a delegated lecturer).
+        # even if they are not the class owner (e.g. a co-lecturer or a delegate).
         running = set(
             AttendanceSession.objects.filter(
                 class_session=cs, lecturer=request.user
             ).values_list("lecturer_id", flat=True)
         )
-        allowed = request.user.role in {
-            "SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN",
-        } or request.user.id in {owner, offering_lecturer} or request.user.id in running
+        allowed = (
+            request.user.role in {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}
+            or is_offering_teacher(request.user, offering)
+            or cs.class_definition.lecturer_id == request.user.id
+            or request.user.id in running
+        )
         if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN}:
             allowed = can_administer_offering(request.user, cs.class_definition.course_offering)
         if not allowed:
@@ -665,8 +740,10 @@ class LecturerMyCoursesView(APIView):
         # with an empty classroom list and no way to take attendance. Active
         # offerings are ordered first so the current term stays on top.
         qs = (
-            CourseOffering.objects.select_related("course", "department", "semester")
-            .filter(lecturer=request.user)
+            CourseOffering.objects.select_related("course", "department", "semester", "lecturer", "co_lecturer")
+            .filter(
+                db_models.Q(lecturer=request.user) | db_models.Q(co_lecturer=request.user)
+            )
             .order_by(
                 db_models.Case(
                     db_models.When(semester=active_semester, then=0),
