@@ -1,6 +1,5 @@
 """Self-service edits for institutional email and registration numbers."""
 import pytest
-from django.urls import reverse
 from rest_framework.test import APIClient
 
 from apps.accounts.models import LecturerProfile, StudentProfile, User
@@ -34,7 +33,7 @@ def _client(user):
 def test_student_can_change_email_and_matricule_and_log_in_with_them():
     user = _student()
     resp = _client(user).patch(
-        reverse("auth-me"),
+        "/api/v1/auth/me/",
         {"email": "new.student@student.ubuea.cm", "student_number": "FE25A123"},
         format="json",
     )
@@ -46,19 +45,19 @@ def test_student_can_change_email_and_matricule_and_log_in_with_them():
 
     anon = APIClient()
     old_email = anon.post(
-        reverse("auth-login"),
+        "/api/v1/auth/login/",
         {"email": "student@test.edu", "password": PASSWORD},
         format="json",
     )
     assert old_email.status_code == 401
     by_email = anon.post(
-        reverse("auth-login"),
+        "/api/v1/auth/login/",
         {"email": "new.student@student.ubuea.cm", "password": PASSWORD},
         format="json",
     )
     assert by_email.status_code == 200
     by_matricule = anon.post(
-        reverse("auth-login"),
+        "/api/v1/auth/login/",
         {"matricule": "FE25A123", "password": PASSWORD},
         format="json",
     )
@@ -68,7 +67,7 @@ def test_student_can_change_email_and_matricule_and_log_in_with_them():
 def test_lecturer_can_change_staff_number():
     user = _lecturer()
     resp = _client(user).patch(
-        reverse("auth-me"), {"staff_number": "STAFF999"}, format="json"
+        "/api/v1/auth/me/", {"staff_number": "STAFF999"}, format="json"
     )
     assert resp.status_code == 200, resp.content
     user.refresh_from_db()
@@ -81,7 +80,7 @@ def test_duplicate_email_is_rejected_case_insensitively():
         email="taken@test.edu", password=PASSWORD, first_name="Other", last_name="User"
     )
     resp = _client(user).patch(
-        reverse("auth-me"), {"email": "TAKEN@test.edu"}, format="json"
+        "/api/v1/auth/me/", {"email": "TAKEN@test.edu"}, format="json"
     )
     assert resp.status_code == 400
     assert "email" in resp.json()["error"]["details"]
@@ -93,7 +92,7 @@ def test_duplicate_matricule_is_rejected_case_insensitively():
     user = _student()
     other = _student(email="other@test.edu", number="STU002")
     resp = _client(user).patch(
-        reverse("auth-me"), {"student_number": "stu002"}, format="json"
+        "/api/v1/auth/me/", {"student_number": "stu002"}, format="json"
     )
     assert resp.status_code == 400
     assert "student_number" in resp.json()["error"]["details"]
@@ -106,7 +105,7 @@ def test_duplicate_matricule_is_rejected_case_insensitively():
 def test_student_cannot_set_staff_number():
     user = _student()
     resp = _client(user).patch(
-        reverse("auth-me"), {"staff_number": "STAFF999"}, format="json"
+        "/api/v1/auth/me/", {"staff_number": "STAFF999"}, format="json"
     )
     assert resp.status_code == 400
     assert "staff_number" in resp.json()["error"]["details"]
@@ -115,7 +114,7 @@ def test_student_cannot_set_staff_number():
 def test_lecturer_cannot_set_matricule():
     user = _lecturer()
     resp = _client(user).patch(
-        reverse("auth-me"), {"student_number": "FE25A123"}, format="json"
+        "/api/v1/auth/me/", {"student_number": "FE25A123"}, format="json"
     )
     assert resp.status_code == 400
     assert "student_number" in resp.json()["error"]["details"]
@@ -125,5 +124,5 @@ def test_email_and_matricule_must_not_be_blank():
     user = _student()
     client = _client(user)
     for field in ("email", "student_number"):
-        resp = client.patch(reverse("auth-me"), {field: "   "}, format="json")
+        resp = client.patch("/api/v1/auth/me/", {field: "   "}, format="json")
         assert resp.status_code == 400, field

@@ -1,13 +1,10 @@
-from django.urls import include, path
+from django.urls import path
+
+from . import views, views_support
 
 urlpatterns = [
-    path("auth/", include("apps.accounts.urls_auth")),
-    path("", include("apps.accounts.urls")),
-    path("", include("apps.academics.urls")),
-    path("", include("apps.attendance.urls")),
-    path("", include("apps.learning.urls")),
-    path("", include("apps.announcements.urls")),
-    path("", include("apps.projects.urls")),
-    path("", include("apps.notifications.urls")),
-    path("", include("apps.dashboard.urls")),
+    path("health/", views.HealthCheckView.as_view(), name="health"),
+    path("version/", views.VersionView.as_view(), name="version"),
+    path("ping/", views.PingView.as_view(), name="ping"),
+    path("support/contact/", views_support.SupportContactView.as_view(), name="support-contact"),
 ]

@@ -14,4 +14,11 @@ urlpatterns = [
     path("api/v1/auth/", include("apps.accounts.urls_auth")),
     path("api/v1/", include("apps.accounts.urls")),
     path("api/v1/admin/support/", include("apps.accounts.urls_support_admin")),
+    path("api/v1/", include("apps.academics.urls")),
+    path("api/v1/", include("apps.learning.urls")),
+    path("api/v1/", include("apps.attendance.urls")),
+    path("api/v1/", include("apps.projects.urls")),
+    path("api/v1/", include("apps.notifications.urls")),
+    path("api/v1/", include("apps.announcements.urls")),
+    path("api/v1/", include("apps.dashboard.urls")),
 ]
