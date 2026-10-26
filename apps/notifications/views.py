@@ -7,12 +7,14 @@ from rest_framework.views import APIView
 
 from .models import Notification
 from .serializers import NotificationSerializer
+from .services import sync_platform_updates
 
 
 class NotificationListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        sync_platform_updates(request.user)
         notifications = Notification.objects.filter(user=request.user)
         unread_only = request.query_params.get("unread")
         if unread_only in ("true", "1"):
