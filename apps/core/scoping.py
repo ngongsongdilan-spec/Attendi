@@ -46,7 +46,10 @@ def can_administer_offering(user, offering):
         return True
     if not is_admin(user) or not getattr(offering, "pk", None):
         return False
-    return any(can_administer_department(user, d) for d in offering.departments.all())
+    return any(
+        d.faculty_id == offering.department.faculty_id and can_administer_department(user, d)
+        for d in offering.departments.all()
+    )
 
 
 def is_offering_teacher(user, offering):

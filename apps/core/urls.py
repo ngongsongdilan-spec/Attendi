@@ -7,4 +7,5 @@ urlpatterns = [
     path("version/", views.VersionView.as_view(), name="version"),
     path("ping/", views.PingView.as_view(), name="ping"),
     path("support/contact/", views_support.SupportContactView.as_view(), name="support-contact"),
+    path("support/tickets/<uuid:ticket_id>/", views_support.SupportTicketDetailView.as_view(), name="support-ticket-detail"),
 ]

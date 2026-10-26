@@ -192,7 +192,10 @@ class CourseListView(APIView):
         level = request.query_params.get("level")
         search = request.query_params.get("search")
         if department_id:
-            qs = qs.filter(department_id=department_id)
+            qs = qs.filter(
+                db_models.Q(department_id=department_id)
+                | db_models.Q(offerings__departments__id=department_id)
+            ).distinct()
         if level:
             qs = qs.filter(level=level)
         if search:
@@ -253,6 +256,13 @@ class CourseOfferingCreateView(APIView):
         if s.validated_data["course"].department_id != s.validated_data["department"].id:
             return Response({"error": "The offering must belong to its course's department."},
                             status=status.HTTP_400_BAD_REQUEST)
+        shared = s.validated_data.get("departments", [])
+        if shared:
+            primary = s.validated_data["department"]
+            if request.user.role not in {User.Role.SYSTEM_ADMIN, User.Role.FACULTY_ADMIN} or not can_administer_department(request.user, primary):
+                return Response(status=status.HTTP_403_FORBIDDEN)
+            if any(department.faculty_id != primary.faculty_id for department in shared):
+                return Response({"error": "Shared departments must belong to the course faculty."}, status=status.HTTP_400_BAD_REQUEST)
         if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not can_administer_department(
             request.user, s.validated_data["department"]
         ):
@@ -323,6 +333,8 @@ class CourseOfferingDetailView(APIView):
 
         department_ids = None
         if "departments" in request.data:
+            if request.user.role not in {User.Role.SYSTEM_ADMIN, User.Role.FACULTY_ADMIN} or not can_administer_department(request.user, offering.department):
+                return Response(status=status.HTTP_403_FORBIDDEN)
             raw_ids = request.data.get("departments") or []
             if not isinstance(raw_ids, list):
                 return Response(
@@ -336,6 +348,8 @@ class CourseOfferingDetailView(APIView):
                     {"success": False, "error": {"code": "VALIDATION_ERROR", "message": "One or more departments do not exist."}},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            if any(department.faculty_id != offering.department.faculty_id for department in departments):
+                return Response({"error": "Shared departments must belong to the course faculty."}, status=status.HTTP_400_BAD_REQUEST)
             department_ids = [d.id for d in departments]
 
         final_lecturer_id = (lecturer.id if lecturer else None) if lecturer_sent else offering.lecturer_id
@@ -362,7 +376,18 @@ class CourseOfferingDetailView(APIView):
             if lecturer_sent and lecturer is not None and not Enrollment.objects.filter(course_offering=offering).exists():
                 enroll_cohort(offering)
             if department_ids is not None:
+                removed_ids = set(offering.departments.values_list("id", flat=True)) - set(department_ids)
                 offering.departments.set(department_ids)
+                for enrollment in Enrollment.objects.filter(
+                    course_offering=offering,
+                    student__student_profile__department_id__in=removed_ids,
+                    status=Enrollment.Status.ACTIVE,
+                ):
+                    enrollment.status = Enrollment.Status.DROPPED
+                    enrollment.dropped_at = tz.now()
+                    enrollment.save(update_fields=["status", "dropped_at", "updated_at"])
+                if offering.lecturer_id:
+                    enroll_cohort(offering)
         audit(
             user=request.user,
             action="COURSE_OFFERING_UPDATED",

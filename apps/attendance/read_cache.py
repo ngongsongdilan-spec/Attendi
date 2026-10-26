@@ -214,7 +214,7 @@ def session_checkpoints(session_id):
         return list(AttendanceCheckpoint.objects.filter(
             attendance_session_id=session_id,
         ).values(
-            "id", "checkpoint_number", "student__email",
+            "id", "checkpoint_number", "student__email", "selection_method",
         ))
 
     return cached_read(checkpoints_key(session_id), load, timeout=60)

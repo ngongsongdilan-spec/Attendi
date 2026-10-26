@@ -1,27 +1,58 @@
+from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audit.services import audit
+from .models import SupportTicket
+
+
+def ticket_data(ticket):
+    return {
+        "id": str(ticket.id),
+        "subject": ticket.subject,
+        "message": ticket.message,
+        "status": ticket.status,
+        "created_at": ticket.created_at,
+        "updated_at": ticket.updated_at,
+        "actor_email": ticket.user.email,
+        "actor_name": ticket.user.get_full_name(),
+        "replies": [
+            {"id": str(reply.id), "message": reply.message, "created_at": reply.created_at,
+             "author_name": reply.author.get_full_name()}
+            for reply in ticket.replies.all()
+        ],
+    }
+
+
+def ticket_queryset():
+    return SupportTicket.objects.select_related("user").prefetch_related("replies__author")
 
 
 class SupportContactView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def get(self, request):
+        tickets = ticket_queryset().filter(user=request.user)[:200]
+        return Response([ticket_data(ticket) for ticket in tickets])
+
     def post(self, request):
-        subject = (request.data.get("subject") or "general").strip()
-        message = (request.data.get("message") or "").strip()
-        if len(message) < 10:
-            return Response(
-                {"success": False, "error": {"code": "VALIDATION_ERROR", "message": "Message must be at least 10 characters."}},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        audit(
-            user=request.user,
-            action="SUPPORT_CONTACT",
-            resource_type="SupportTicket",
-            request=request,
-            metadata={"subject": subject, "message": message[:2000]},
-        )
-        return Response({"message": "Support request received."}, status=status.HTTP_201_CREATED)
+        subject = request.data.get("subject", "general")
+        message = request.data.get("message", "")
+        if not isinstance(subject, str) or not isinstance(message, str):
+            return Response({"error": "Subject and message must be text."}, status=status.HTTP_400_BAD_REQUEST)
+        subject, message = subject.strip(), message.strip()
+        if not subject or len(subject) > 200 or not 10 <= len(message) <= 10000:
+            return Response({"error": "Subject must be 1-200 characters and message 10-10000 characters."}, status=status.HTTP_400_BAD_REQUEST)
+        ticket = SupportTicket.objects.create(user=request.user, subject=subject, message=message)
+        audit(user=request.user, action="SUPPORT_CONTACT", resource_type="SupportTicket", resource_id=ticket.id, request=request)
+        return Response(ticket_data(ticket), status=status.HTTP_201_CREATED)
+
+
+class SupportTicketDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, ticket_id):
+        ticket = get_object_or_404(ticket_queryset().filter(user=request.user), id=ticket_id)
+        return Response(ticket_data(ticket))

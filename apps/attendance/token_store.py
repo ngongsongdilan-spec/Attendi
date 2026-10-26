@@ -255,6 +255,21 @@ def generate_tokens_for_session(attendance_session: AttendanceSession, checkpoin
     }
 
 
+def station_qr_payload(session, checkpoint, version=1):
+    """Initial QR for a newly promoted station; subsequent rotations use the token API."""
+    try:
+        token = generate_token_for_checkpoint(session, checkpoint, version=version)["token"]
+    except ValueError:
+        return None
+    return {
+        "attendance_session_id": str(session.id),
+        "checkpoint_id": str(checkpoint.id),
+        "selection_method": checkpoint.selection_method,
+        "token": token,
+        "expires_in_seconds": TOKEN_TTL,
+    }
+
+
 def validate_and_record_scan(token: str, requesting_user) -> dict:
     """Validate a scanned token and record attendance if valid (FR-045, API Spec §30).
 
@@ -332,7 +347,7 @@ def validate_and_record_scan(token: str, requesting_user) -> dict:
         # Station capacity: ONLY auto-selected student stations serve at most
         # SCANS_PER_STATION classmates (FR-047). Teacher-selected stations and
         # projector checkpoints are unlimited.
-        from .points import POINTS, SCANS_PER_STATION, award_scan_points, award_station_points
+        from .points import POINTS, SCANS_PER_STATION, activate_scanned_station, award_scan_points, award_station_points
         from apps.notifications.models import Notification
 
         checkpoint = None
@@ -346,7 +361,10 @@ def validate_and_record_scan(token: str, requesting_user) -> dict:
         is_auto_station = (
             checkpoint is not None
             and checkpoint.student.role == "STUDENT"
-            and checkpoint.selection_method == AttendanceCheckpoint.SelectionMethod.AUTO
+            and checkpoint.selection_method in {
+                AttendanceCheckpoint.SelectionMethod.AUTO,
+                AttendanceCheckpoint.SelectionMethod.SCAN,
+            }
         )
         if is_auto_station:
             scans_served = AttendanceRecord.objects.filter(
@@ -366,9 +384,10 @@ def validate_and_record_scan(token: str, requesting_user) -> dict:
             checkpoint_id=checkpoint_id,
             verification_method="QR_SCAN",
         )
+        station = activate_scanned_station(session, requesting_user)
 
         # Points: scanners earn 4 pts (projector or student station); the
-        # station owner earns 5 pts when assigned (idempotent here, FR-048).
+        # station owner earns 5 pts when their QR is first scanned.
         award_scan_points(session, requesting_user, checkpoint=checkpoint)
         is_student_station = checkpoint is not None and checkpoint.student.role == "STUDENT"
         if is_student_station:
@@ -411,9 +430,14 @@ def validate_and_record_scan(token: str, requesting_user) -> dict:
     cache.delete(generate_token_key(attendance_session_id, token))
     cache.delete(reverse_key)
 
-    return {
+    result = {
         "success": True,
         "attendance_record_id": str(record.id),
         "message": "Attendance recorded.",
         "http_status": 201,
     }
+    if station and session.is_active:
+        qr = station_qr_payload(session, station)
+        if qr:
+            result["station_qr"] = qr
+    return result

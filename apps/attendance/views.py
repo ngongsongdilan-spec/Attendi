@@ -504,7 +504,7 @@ class StationTokenView(APIView):
                 status=status.HTTP_410_GONE,
             )
         scans_at_station = station_scan_count(checkpoint.id)
-        is_auto = checkpoint.selection_method == "AUTO"
+        is_auto = checkpoint.selection_method in {"AUTO", "SCAN"}
         scans_remaining = None
         if is_auto:
             from .points import SCANS_PER_STATION
@@ -644,7 +644,8 @@ class TokensView(APIView):
         checkpoints = [SimpleNamespace(
             id=cp["id"], checkpoint_number=cp["checkpoint_number"],
             student=SimpleNamespace(email=cp["student__email"]),
-        ) for cp in session_checkpoints(attendance_session_id)]
+        ) for cp in session_checkpoints(attendance_session_id)
+            if cp["selection_method"] != AttendanceCheckpoint.SelectionMethod.SCAN]
         session = SimpleNamespace(
             id=attendance_session_id, mode=snapshot["mode"],
             started_at=snapshot["started_at"], expires_at=snapshot["expires_at"],

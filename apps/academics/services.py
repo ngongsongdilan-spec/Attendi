@@ -9,16 +9,17 @@ from apps.accounts.models import User
 from .models import Enrollment
 
 
-def cohort_queryset(course):
-    """Students who belong in an offering of `course`.
+def cohort_queryset(offering):
+    """Students who belong in any participating department of an offering.
 
-    Matches the classroom-creation rule: active students in the course's own
-    department, narrowed to the course level when the course declares one.
+    Uses active students in the primary and shared departments, narrowed to
+    the course level when the course declares one.
     """
+    course = offering.course
     qs = User.objects.filter(
         role=User.Role.STUDENT,
         is_active=True,
-        student_profile__department=course.department,
+        student_profile__department_id__in=offering.all_department_ids,
     )
     if course.level:
         qs = qs.filter(student_profile__level=course.level)
@@ -32,7 +33,7 @@ def enroll_cohort(offering):
     are left untouched.
     """
     created = 0
-    for student in cohort_queryset(offering.course):
+    for student in cohort_queryset(offering):
         _enrollment, was_created = Enrollment.objects.get_or_create(
             student=student,
             course_offering=offering,

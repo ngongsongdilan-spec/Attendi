@@ -56,6 +56,16 @@ class UserDetailView(APIView):
         user = get_object_or_404(User, id=user_id)
         if request.user.role in {User.Role.FACULTY_ADMIN, User.Role.DEPARTMENT_ADMIN} and not can_view_user(request.user, user):
             return Response(status=status.HTTP_403_FORBIDDEN)
+        if request.user.role == User.Role.LECTURER and request.user.id != user.id:
+            from apps.academics.models import Enrollment
+
+            if not (user.role == User.Role.STUDENT and Enrollment.objects.filter(
+                student=user,
+                status=Enrollment.Status.ACTIVE,
+            ).filter(
+                Q(course_offering__lecturer=request.user) | Q(course_offering__co_lecturer=request.user)
+            ).exists()):
+                return Response(status=status.HTTP_403_FORBIDDEN)
         if request.user.id != user.id and request.user.role not in {
             "DEPARTMENT_ADMIN", "FACULTY_ADMIN", "SYSTEM_ADMIN", "LECTURER"
         }:

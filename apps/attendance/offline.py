@@ -41,7 +41,7 @@ def validate_capture_window(session, claims, *, offline, now=None):
             return None, reject("SYNC_GRACE_EXPIRED", "The offline sync period has ended.")
         if slot_start > now:
             return None, reject("CAPTURE_IN_FUTURE", "The QR slot has not started yet.")
-    elif not (session.is_active and slot_start <= now < slot_end):
+    elif not (session.is_active and (slot_start <= now or (claims["slot_index"] == 0 and session.started_at <= now)) and now < slot_end):
         return None, reject("TOKEN_EXPIRED", "QR code has expired. Please scan the current QR code.", 410)
     return (slot_start, slot_end), None
 
@@ -89,7 +89,10 @@ def record_v2_scan(
             return reject("CAPTURE_WINDOW_EXPIRED", "The station was not active in that QR slot.")
         is_auto_station = (
             checkpoint.student.role == "STUDENT"
-            and checkpoint.selection_method == AttendanceCheckpoint.SelectionMethod.AUTO
+            and checkpoint.selection_method in {
+                AttendanceCheckpoint.SelectionMethod.AUTO,
+                AttendanceCheckpoint.SelectionMethod.SCAN,
+            }
         )
         if is_auto_station:
             scans_served = AttendanceRecord.objects.filter(
@@ -130,6 +133,11 @@ def record_v2_scan(
             }
         return reject("ALREADY_ATTENDED", "Attendance already recorded for this session.", 409)
 
+    station = None
+    if not offline:
+        from .points import activate_scanned_station
+
+        station = activate_scanned_station(session, student)
     award_scan_points(session, student, checkpoint=checkpoint, when=slot_start if offline else now)
     if checkpoint and checkpoint.student.role == "STUDENT":
         award_station_points(session, checkpoint, when=slot_start if offline else now)
@@ -158,9 +166,16 @@ def record_v2_scan(
                 reference_id=session.id,
             )
 
-    return {
+    result = {
         "success": True,
         "attendance_record_id": str(record.id),
         "message": "Attendance recorded.",
         "http_status": 201,
     }
+    if station and session.is_active:
+        from .token_store import TOKEN_V2, station_qr_payload
+
+        qr = station_qr_payload(session, station, version=TOKEN_V2)
+        if qr:
+            result["station_qr"] = qr
+    return result

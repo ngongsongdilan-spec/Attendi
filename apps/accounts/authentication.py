@@ -10,7 +10,8 @@ import http.cookies
 from django.conf import settings
 from django.utils.crypto import get_random_string
 from rest_framework.request import Request
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.authentication import CSRFCheck
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework_simplejwt.authentication import JWTAuthentication as BaseJWTAuth
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -19,6 +20,15 @@ from rest_framework_simplejwt.tokens import RefreshToken
 # silently dropped. Feature-detect once at import and set the flag on the
 # Morsel Django already stores, which serialises correctly either way.
 _MORSE_SUPPORTS_PARTITIONED = "partitioned" in http.cookies.Morsel()._reserved
+
+
+def enforce_cookie_csrf(request):
+    """Require Django's CSRF check when credentials came from browser cookies."""
+    check = CSRFCheck(lambda _request: None)
+    check.process_request(request)
+    reason = check.process_view(request, None, (), {})
+    if reason:
+        raise PermissionDenied(f"CSRF failed: {reason}")
 
 
 def _apply_partitioned(response, *names):
@@ -146,5 +156,6 @@ class CookieJWTAuthentication(BaseJWTAuth):
         if not token:
             return None
 
+        enforce_cookie_csrf(request)
         validated = self.get_validated_token(token)
         return self.get_user(validated), validated

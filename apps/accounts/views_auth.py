@@ -246,6 +246,10 @@ class TokenRefreshView(APIView):
         refresh_cookie = request.COOKIES.get(settings.COOKIE_NAME_REFRESH)
         body_refresh = request.data.get("refresh")
         token_str = refresh_cookie or body_refresh
+        if refresh_cookie:
+            from .authentication import enforce_cookie_csrf
+
+            enforce_cookie_csrf(request)
         if not token_str:
             return Response(
                 {"success": False, "error": {"code": "VALIDATION_ERROR", "message": "Refresh token required."}},

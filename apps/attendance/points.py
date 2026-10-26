@@ -233,7 +233,10 @@ def award_station_points(attendance_session: AttendanceSession, checkpoint: Atte
     attendance_session = AttendanceSession.objects.select_for_update().get(id=attendance_session.id)
     if checkpoint.student.role != "STUDENT":
         return
-    is_auto = checkpoint.selection_method == AttendanceCheckpoint.SelectionMethod.AUTO
+    is_auto = checkpoint.selection_method in {
+        AttendanceCheckpoint.SelectionMethod.AUTO,
+        AttendanceCheckpoint.SelectionMethod.SCAN,
+    }
     category = (
         PointsLedger.Category.AUTO_STATION if is_auto else PointsLedger.Category.TEACHER_STATION
     )
@@ -271,6 +274,21 @@ def award_station_points(attendance_session: AttendanceSession, checkpoint: Atte
         category=category,
         points=final,
     )
+
+
+def activate_scanned_station(attendance_session, student):
+    """Promote a checked-in student while the scan caller holds the session lock."""
+    if attendance_session.mode != AttendanceSession.SessionMode.STATIONS or student.role != "STUDENT":
+        return None
+    checkpoint, _created = AttendanceCheckpoint.objects.get_or_create(
+        attendance_session=attendance_session,
+        student=student,
+        defaults={
+            "checkpoint_number": attendance_session.checkpoints.count() + 1,
+            "selection_method": AttendanceCheckpoint.SelectionMethod.SCAN,
+        },
+    )
+    return checkpoint
 
 
 @transaction.atomic

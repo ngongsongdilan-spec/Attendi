@@ -11,6 +11,7 @@ import io
 import secrets
 import string
 
+from django.conf import settings
 from django.db import transaction
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -117,6 +118,8 @@ class RosterUploadView(APIView):
                 {"success": False, "error": {"code": "VALIDATION_ERROR", "message": "Attach a CSV file in the 'file' field."}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if file.size > settings.FILE_MAX_SIZE_BYTES:
+            return Response({"error": "Roster file exceeds the upload size limit."}, status=status.HTTP_400_BAD_REQUEST)
         try:
             text = file.read().decode("utf-8-sig")
             reader = csv.DictReader(io.StringIO(text))
@@ -172,19 +175,18 @@ class RosterUploadView(APIView):
                 if User.objects.filter(email__iexact=email).exists():
                     user = User.objects.filter(email__iexact=email).first()
                     profile = getattr(user, "student_profile", None)
-                    if profile:
-                        if not profile.student_number:
-                            # Never steal a matricule owned by another account:
-                            # the DB unique index would abort the whole upload
-                            # as a 500 instead of failing this one row.
-                            if StudentProfile.objects.filter(student_number__iexact=matricule).exists():
-                                errors.append({"line": i, "matricule": matricule, "error": "Matricule already belongs to another account."})
-                                continue
-                            profile.student_number = matricule
-                        profile.level = level or profile.level
-                        if department:
-                            profile.department = department
-                        profile.save(update_fields=["student_number", "level", "department", "updated_at"])
+                    if user.role != User.Role.STUDENT or profile is None or not can_administer_department(request.user, profile.department):
+                        errors.append({"line": i, "matricule": matricule, "error": "Existing account is outside your roster scope."})
+                        continue
+                    if not profile.student_number:
+                        if StudentProfile.objects.filter(student_number__iexact=matricule).exists():
+                            errors.append({"line": i, "matricule": matricule, "error": "Matricule already belongs to another account."})
+                            continue
+                        profile.student_number = matricule
+                    profile.level = level or profile.level
+                    if department:
+                        profile.department = department
+                    profile.save(update_fields=["student_number", "level", "department", "updated_at"])
                     if dob and not user.date_of_birth:
                         user.date_of_birth = dob
                         user.save(update_fields=["date_of_birth", "updated_at"])

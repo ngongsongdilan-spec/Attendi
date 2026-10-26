@@ -73,6 +73,7 @@ class AttendanceCheckpoint(TimeStampedUUIDModel):
     class SelectionMethod(models.TextChoices):
         TEACHER = "TEACHER", "Selected by teacher"
         AUTO = "AUTO", "Auto-selected by system"
+        SCAN = "SCAN", "Activated after scanning"
 
     attendance_session = models.ForeignKey(AttendanceSession, on_delete=models.CASCADE, related_name="checkpoints")
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="checkpoint_assignments")
