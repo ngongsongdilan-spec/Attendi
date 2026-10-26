@@ -49,6 +49,8 @@ def test_support_owner_and_admin_scope(api_client, cs_department, student_user, 
 def test_legacy_support_message_is_imported_and_redacted(student_user):
     log = AuditLog.objects.create(actor=student_user, action="SUPPORT_CONTACT", resource_type="SupportTicket",
                                   metadata={"subject": "Old request", "message": "A private support message"})
+    orphan = AuditLog.objects.create(actor=None, action="SUPPORT_CONTACT", resource_type="SupportTicket",
+                                     metadata={"subject": "Orphaned request", "message": "Private orphaned message"})
     migration = import_module("apps.core.migrations.0002_import_legacy_support")
     migration.import_support_messages(apps, SimpleNamespace(connection=connection))
     ticket = SupportTicket.objects.get(id=log.id)
@@ -56,3 +58,6 @@ def test_legacy_support_message_is_imported_and_redacted(student_user):
     assert ticket.message == "A private support message"
     log.refresh_from_db()
     assert "message" not in log.metadata and "subject" not in log.metadata
+    orphan.refresh_from_db()
+    assert SupportTicket.objects.get(id=orphan.id).user is None
+    assert "message" not in orphan.metadata and "subject" not in orphan.metadata

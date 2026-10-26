@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
                 ("subject", models.CharField(max_length=200)),
                 ("message", models.TextField()),
                 ("status", models.CharField(choices=[("OPEN", "Open"), ("IN_PROGRESS", "In progress"), ("RESOLVED", "Resolved")], default="OPEN", max_length=20)),
-                ("user", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="support_tickets", to=settings.AUTH_USER_MODEL)),
+                ("user", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="support_tickets", to=settings.AUTH_USER_MODEL)),
             ],
             options={"ordering": ["-created_at"]},
         ),

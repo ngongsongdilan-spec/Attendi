@@ -5,7 +5,7 @@ def import_support_messages(apps, schema_editor):
     AuditLog = apps.get_model("audit", "AuditLog")
     SupportTicket = apps.get_model("core", "SupportTicket")
     database = schema_editor.connection.alias
-    logs = AuditLog.objects.using(database).filter(action="SUPPORT_CONTACT", actor_id__isnull=False)
+    logs = AuditLog.objects.using(database).filter(action="SUPPORT_CONTACT")
     for log in logs.iterator():
         metadata = log.metadata or {}
         if "message" not in metadata:

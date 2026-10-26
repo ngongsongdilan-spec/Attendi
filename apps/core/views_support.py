@@ -16,8 +16,8 @@ def ticket_data(ticket):
         "status": ticket.status,
         "created_at": ticket.created_at,
         "updated_at": ticket.updated_at,
-        "actor_email": ticket.user.email,
-        "actor_name": ticket.user.get_full_name(),
+        "actor_email": ticket.user.email if ticket.user else None,
+        "actor_name": ticket.user.get_full_name() if ticket.user else None,
         "replies": [
             {"id": str(reply.id), "message": reply.message, "created_at": reply.created_at,
              "author_name": reply.author.get_full_name()}

@@ -26,7 +26,7 @@ class SupportTicket(TimeStampedUUIDModel):
         IN_PROGRESS = "IN_PROGRESS", "In progress"
         RESOLVED = "RESOLVED", "Resolved"
 
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="support_tickets")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="support_tickets")
     subject = models.CharField(max_length=200)
     message = models.TextField()
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
