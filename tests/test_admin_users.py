@@ -52,6 +52,23 @@ def test_user_list_includes_account_state_for_admins():
     assert row["full_name"] == "Mem Ber"
 
 
+def test_user_list_includes_suspended_and_archived_accounts():
+    admin = _admin()
+    suspended = _user(email="suspended@test.edu")
+    archived = _user(email="archived@test.edu")
+    User.objects.filter(pk=suspended.pk).update(status=User.Status.SUSPENDED, is_active=False)
+    User.objects.filter(pk=archived.pk).update(status=User.Status.ARCHIVED, is_active=False)
+
+    client = APIClient()
+    client.force_authenticate(user=admin)
+    resp = client.get(reverse("user-list"))
+    assert resp.status_code == 200
+
+    rows = {row["email"]: row for row in resp.json()["data"]}
+    assert rows["suspended@test.edu"]["status"] == "SUSPENDED"
+    assert rows["archived@test.edu"]["status"] == "ARCHIVED"
+
+
 def test_students_cannot_list_users():
     student = _user()
     client = APIClient()
