@@ -108,6 +108,18 @@ class TestMalformedDurationIsTolerated:
         default = getattr(settings, "ATTENDANCE_SESSION_DEFAULT_SECONDS", 60)
         assert abs(self._ttl(resp.json()["data"]["id"]) - default) < 2
 
+    def test_start_flex_keeps_custom_duration_above_ten_minutes(
+        self, api_client, class_session, lecturer_user
+    ):
+        offering = self._as_lecturer(api_client, class_session, lecturer_user)
+        resp = api_client.post(
+            "/api/v1/attendance/start-flex/",
+            {"offering_id": str(offering.id), "duration_seconds": 2400},
+            format="json",
+        )
+        assert resp.status_code == 201, resp.content
+        assert abs(self._ttl(resp.json()["data"]["id"]) - 2400) < 2
+
     def test_start_flex_clamps_excessive_duration(self, api_client, class_session, lecturer_user):
         offering = self._as_lecturer(api_client, class_session, lecturer_user)
         resp = api_client.post(
@@ -116,7 +128,7 @@ class TestMalformedDurationIsTolerated:
             format="json",
         )
         assert resp.status_code == 201, resp.content
-        maximum = getattr(settings, "ATTENDANCE_SESSION_MAX_SECONDS", 600)
+        maximum = getattr(settings, "ATTENDANCE_SESSION_MAX_SECONDS", 10800)
         assert self._ttl(resp.json()["data"]["id"]) <= maximum + 2
 
     def test_start_flex_tolerates_garbage_duration(self, api_client, class_session, lecturer_user):

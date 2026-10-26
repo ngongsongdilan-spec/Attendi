@@ -101,7 +101,7 @@ class StartAttendanceView(APIView):
         duration = _parse_duration(
             request.data.get("duration_seconds"),
             getattr(settings, "ATTENDANCE_SESSION_DEFAULT_SECONDS", 60),
-            getattr(settings, "ATTENDANCE_SESSION_MAX_SECONDS", 600),
+            getattr(settings, "ATTENDANCE_SESSION_MAX_SECONDS", 10800),
         )
         now = timezone.now()
         session = AttendanceSession.objects.create(
@@ -128,7 +128,7 @@ class FlexibleStartAttendanceView(APIView):
       class_type       (optional, default from schedule or LECTURE)
       starts_at        (optional ISO datetime, default now)
       ends_at          (optional ISO datetime, default starts_at + 2h)
-      duration_seconds (optional token validity, default 60, max 600)
+      duration_seconds (optional token validity, default 60, max 10800)
     """
 
     permission_classes = [IsAuthenticated, IsLecturerOrAdmin]
@@ -215,7 +215,7 @@ class FlexibleStartAttendanceView(APIView):
         duration = _parse_duration(
             request.data.get("duration_seconds"),
             getattr(settings, "ATTENDANCE_SESSION_DEFAULT_SECONDS", 60),
-            getattr(settings, "ATTENDANCE_SESSION_MAX_SECONDS", 600),
+            getattr(settings, "ATTENDANCE_SESSION_MAX_SECONDS", 10800),
         )
         now = timezone.now()
         mode = request.data.get("mode")
