@@ -185,6 +185,45 @@ class TestAuth:
         assert user.role == "LECTURER"
         assert user.lecturer_profile.staff_number == "STF0099"
 
+    def test_self_register_signs_the_new_user_in(self):
+        from rest_framework.test import APIClient
+
+        fet = Faculty.objects.create(code="FET", name="Faculty of Engineering and Technology")
+        dept = Department.objects.create(faculty=fet, code="CIV", name="Civil Engineering")
+        client = APIClient()
+        resp = client.post(
+            reverse("auth-self-register"),
+            {
+                "email": "auto.login@student.ubuea.cm",
+                "password": "pass12345",
+                "password_confirm": "pass12345",
+                "first_name": "Auto",
+                "last_name": "Login",
+                "department": str(dept.id),
+                "role": "STUDENT",
+                "matricule": "2026AUTO1",
+                "level": "300",
+                "personal_email": "auto.login.personal@gmail.com",
+            },
+            format="json",
+        )
+
+        assert resp.status_code == 201, resp.content
+        body = resp.json()["data"]
+        assert body["email"] == "auto.login@student.ubuea.cm"
+        assert body["full_name"] == "Auto Login"
+        assert body["role"] == "STUDENT"
+        assert resp.cookies.get("fet_access") is not None
+        assert resp.cookies.get("fet_refresh") is not None
+        assert resp.cookies["fet_access"]["httponly"] is True
+
+        me = client.get(reverse("auth-me"))
+        assert me.status_code == 200
+        assert me.json()["data"]["email"] == "auto.login@student.ubuea.cm"
+
+        user = User.objects.get(email="auto.login@student.ubuea.cm")
+        assert user.last_login_at is not None
+
     def test_self_register_requires_role_field(self):
         fet = Faculty.objects.create(code="FET", name="Faculty of Engineering and Technology")
         dept = Department.objects.create(faculty=fet, code="CIV", name="Civil Engineering")

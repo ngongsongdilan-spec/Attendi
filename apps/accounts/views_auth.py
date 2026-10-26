@@ -85,12 +85,14 @@ class SelfRegisterView(APIView):
         serializer = SelfRegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+        user.record_login()
+        refresh = get_token_pair_for_user(user)
         audit(user=user, action="SELF_REGISTERED", resource_type="User", resource_id=user.id, request=request,
               metadata={"email": user.email, "role": user.role})
-        return Response(
-            {"message": "Account created successfully. You can now sign in.", "email": user.email},
-            status=status.HTTP_201_CREATED,
-        )
+        audit(user=user, action="LOGGED_IN", resource_type="User", resource_id=user.id, request=request,
+              metadata={"via": "self_register"})
+        resp = Response(MeSerializer(user).data, status=status.HTTP_201_CREATED)
+        return set_jwt_cookies(resp, refresh)
 
 
 class ChangePasswordView(APIView):
