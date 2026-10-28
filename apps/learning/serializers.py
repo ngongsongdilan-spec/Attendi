@@ -25,6 +25,7 @@ class LearningMaterialSerializer(serializers.ModelSerializer):
     class Meta:
         model = LearningMaterial
         fields = ["id", "course_offering", "uploaded_by", "uploader_name", "title", "description", "file", "file_info", "visibility", "created_at"]
+        read_only_fields = ["course_offering", "uploaded_by"]
 
     def get_uploader_name(self, obj):
         return obj.uploaded_by.get_full_name()
@@ -59,6 +60,7 @@ class AssignmentSerializer(serializers.ModelSerializer):
     attachment_info = UploadedFileSerializer(source="attachment", read_only=True)
     submissions_count = serializers.SerializerMethodField()
     graded_count = serializers.SerializerMethodField()
+    pending_review_count = serializers.SerializerMethodField()
     attempts_used = serializers.SerializerMethodField()
     my_submission = serializers.SerializerMethodField()
 
@@ -68,8 +70,9 @@ class AssignmentSerializer(serializers.ModelSerializer):
             "id", "course_offering", "course_code", "created_by", "creator_name", "title",
             "description", "points_possible", "due_at", "allow_late", "max_submissions",
             "attachment", "attachment_info", "status", "created_at",
-            "submissions_count", "graded_count", "attempts_used", "my_submission",
+            "submissions_count", "graded_count", "pending_review_count", "attempts_used", "my_submission",
         ]
+        read_only_fields = ["course_offering", "created_by"]
 
     course_code = serializers.CharField(source="course_offering.course.code", read_only=True)
 
@@ -81,6 +84,9 @@ class AssignmentSerializer(serializers.ModelSerializer):
 
     def get_graded_count(self, obj):
         return obj.submissions.filter(status=AssignmentSubmission.Status.GRADED).count()
+
+    def get_pending_review_count(self, obj):
+        return obj.submissions.filter(status=AssignmentSubmission.Status.SUBMITTED).count()
 
     def get_attempts_used(self, obj):
         request = self.context.get("request")

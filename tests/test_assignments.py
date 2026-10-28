@@ -219,3 +219,46 @@ class TestGradingAndAccess:
         row = resp.json()["data"][0]
         assert row["attempts_used"] == 1
         assert row["my_submission"]["status"] == "SUBMITTED"
+
+
+@pytest.mark.django_db
+class TestClassroomBoundaries:
+    def test_other_lecturer_cannot_read_assignments(self, api_client, assignment):
+        stranger = User.objects.create_user(email="other-lecturer@test.edu", password="test1234", role="LECTURER")
+        api_client.force_authenticate(user=stranger)
+        assert api_client.get(f"/api/v1/course-offerings/{assignment.course_offering_id}/assignments/").status_code == 403
+        assert api_client.get(f"/api/v1/assignments/{assignment.id}/").status_code == 403
+
+    def test_assignment_cannot_change_course_or_author(self, api_client, assignment, lecturer_user):
+        stranger = User.objects.create_user(email="other-author@test.edu", password="test1234", role="LECTURER")
+        original_offering_id = assignment.course_offering_id
+        api_client.force_authenticate(user=lecturer_user)
+        response = api_client.patch(
+            f"/api/v1/assignments/{assignment.id}/",
+            {"course_offering": "00000000-0000-0000-0000-000000000000", "created_by": str(stranger.id), "title": "Updated"},
+            format="json",
+        )
+        assert response.status_code == 200
+        assignment.refresh_from_db()
+        assert assignment.course_offering_id == original_offering_id
+        assert assignment.created_by_id == lecturer_user.id
+        assert assignment.title == "Updated"
+
+    def test_student_cannot_attach_another_users_file(self, api_client, assignment, enrolled_student, lecturer_user):
+        foreign_file = UploadedFile.objects.create(
+            uploaded_by=lecturer_user, original_name="private.pdf", storage_key="private.pdf"
+        )
+        api_client.force_authenticate(user=enrolled_student)
+        response = _submit(api_client, assignment, foreign_file.id)
+        assert response.status_code == 400
+        assert not AssignmentSubmission.objects.filter(assignment=assignment, student=enrolled_student).exists()
+
+    def test_grade_cannot_exceed_points(self, api_client, assignment, enrolled_student, lecturer_user):
+        api_client.force_authenticate(user=enrolled_student)
+        submission_id = _submit(api_client, assignment).json()["data"]["id"]
+        api_client.force_authenticate(user=lecturer_user)
+        response = api_client.patch(
+            f"/api/v1/submissions/{submission_id}/", {"grade": "21"}, format="json"
+        )
+        assert response.status_code == 400
+        assert AssignmentSubmission.objects.get(id=submission_id).grade is None

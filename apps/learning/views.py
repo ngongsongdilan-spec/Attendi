@@ -57,13 +57,15 @@ def _is_staff(user):
 def _can_view_material(user, material):
     """Enrollment gate for materials (BR-070, BR-071). Staff manage all, students
     only see materials of offerings they are actively enrolled in."""
+    return _can_view_offering(user, material.course_offering)
+
+
+def _can_view_offering(user, offering):
     if user.role in ADMIN_ROLES:
-        return can_administer_offering(user, material.course_offering)
-    if user.role != "STUDENT":
-        return True
-    return Enrollment.objects.filter(
-        student=user, course_offering=material.course_offering, status=Enrollment.Status.ACTIVE
-    ).exists()
+        return can_administer_offering(user, offering)
+    if user.role == "LECTURER":
+        return is_offering_teacher(user, offering)
+    return user.role == "STUDENT" and _is_enrolled(user, offering)
 
 
 def _can_manage_offering(request, offering):
@@ -75,6 +77,16 @@ def _can_manage_offering(request, offering):
 
 def _is_enrolled(user, offering):
     return Enrollment.objects.filter(student=user, course_offering=offering, status=Enrollment.Status.ACTIVE).exists()
+
+
+def _can_attach_file(user, file_id, current_id=None):
+    if not file_id or str(file_id) == str(current_id):
+        return True
+    try:
+        file_id = uuid.UUID(str(file_id))
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return UploadedFile.objects.filter(id=file_id, uploaded_by=user, status="ACTIVE").exists()
 
 
 def _can_access_file(user, uploaded_file):
@@ -162,14 +174,8 @@ class MaterialListView(APIView):
 
     def get(self, request, offering_id):
         offering = get_object_or_404(CourseOffering, id=offering_id)
-        if request.user.role in ADMIN_ROLES and not can_administer_offering(request.user, offering):
+        if not _can_view_offering(request.user, offering):
             return Response(status=status.HTTP_403_FORBIDDEN)
-        if request.user.role == "STUDENT":
-            if not Enrollment.objects.filter(student=request.user, course_offering=offering, status=Enrollment.Status.ACTIVE).exists():
-                return Response(
-                    {"success": False, "error": {"code": "FORBIDDEN", "message": "Not enrolled in this course."}},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
         return Response(LearningMaterialSerializer(offering.materials.all(), many=True).data)
 
     def post(self, request, offering_id):
@@ -180,11 +186,13 @@ class MaterialListView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
         data = request.data.copy()
+        if not _can_attach_file(request.user, data.get("file")):
+            return Response({"success": False, "error": {"code": "VALIDATION_ERROR", "message": "Choose a file you uploaded."}}, status=status.HTTP_400_BAD_REQUEST)
         data["course_offering"] = offering.id
         data["uploaded_by"] = request.user.id
         s = LearningMaterialSerializer(data=data)
         s.is_valid(raise_exception=True)
-        material = s.save()
+        material = s.save(course_offering=offering, uploaded_by=request.user)
         audit(user=request.user, action="MATERIAL_CREATED", resource_type="LearningMaterial",
               resource_id=material.id, request=request, metadata={"offering_id": str(offering.id)})
         return Response(LearningMaterialSerializer(material).data, status=status.HTTP_201_CREATED)
@@ -211,6 +219,8 @@ class MaterialDetailView(APIView):
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Not authorized."}},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if not _can_attach_file(request.user, request.data.get("file"), material.file_id):
+            return Response({"success": False, "error": {"code": "VALIDATION_ERROR", "message": "Choose a file you uploaded."}}, status=status.HTTP_400_BAD_REQUEST)
         s = LearningMaterialSerializer(material, data=request.data, partial=True)
         s.is_valid(raise_exception=True)
         s.save()
@@ -302,13 +312,8 @@ class AssignmentListView(APIView):
 
     def get(self, request, offering_id):
         offering = get_object_or_404(CourseOffering, id=offering_id)
-        if request.user.role in ADMIN_ROLES and not can_administer_offering(request.user, offering):
+        if not _can_view_offering(request.user, offering):
             return Response(status=status.HTTP_403_FORBIDDEN)
-        if request.user.role == "STUDENT" and not _is_enrolled(request.user, offering):
-            return Response(
-                {"success": False, "error": {"code": "FORBIDDEN", "message": "Not enrolled in this course."}},
-                status=status.HTTP_403_FORBIDDEN,
-            )
         ctx = {"request": request}
         return Response(AssignmentSerializer(offering.assignments.all(), many=True, context=ctx).data)
 
@@ -320,11 +325,13 @@ class AssignmentListView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
         data = request.data.copy()
+        if not _can_attach_file(request.user, data.get("attachment")):
+            return Response({"success": False, "error": {"code": "VALIDATION_ERROR", "message": "Choose a file you uploaded."}}, status=status.HTTP_400_BAD_REQUEST)
         data["course_offering"] = offering.id
         data["created_by"] = request.user.id
         s = AssignmentSerializer(data=data)
         s.is_valid(raise_exception=True)
-        assignment = s.save()
+        assignment = s.save(course_offering=offering, created_by=request.user)
         audit(user=request.user, action="ASSIGNMENT_CREATED", resource_type="Assignment",
               resource_id=assignment.id, request=request, metadata={"offering_id": str(offering.id)})
         return Response(AssignmentSerializer(assignment, context={"request": request}).data, status=status.HTTP_201_CREATED)
@@ -335,13 +342,8 @@ class AssignmentDetailView(APIView):
 
     def get(self, request, assignment_id):
         assignment = get_object_or_404(Assignment, id=assignment_id)
-        if request.user.role in ADMIN_ROLES and not can_administer_offering(request.user, assignment.course_offering):
+        if not _can_view_offering(request.user, assignment.course_offering):
             return Response(status=status.HTTP_403_FORBIDDEN)
-        if request.user.role == "STUDENT" and not _is_enrolled(request.user, assignment.course_offering):
-            return Response(
-                {"success": False, "error": {"code": "FORBIDDEN", "message": "Not enrolled in this course."}},
-                status=status.HTTP_403_FORBIDDEN,
-            )
         return Response(AssignmentSerializer(assignment, context={"request": request}).data)
 
     def patch(self, request, assignment_id):
@@ -351,6 +353,8 @@ class AssignmentDetailView(APIView):
                 {"success": False, "error": {"code": "FORBIDDEN", "message": "Not authorized."}},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if not _can_attach_file(request.user, request.data.get("attachment"), assignment.attachment_id):
+            return Response({"success": False, "error": {"code": "VALIDATION_ERROR", "message": "Choose a file you uploaded."}}, status=status.HTTP_400_BAD_REQUEST)
         s = AssignmentSerializer(assignment, data=request.data, partial=True)
         s.is_valid(raise_exception=True)
         s.save()
@@ -425,10 +429,16 @@ class AssignmentSubmissionListView(APIView):
                     }},
                     status=status.HTTP_403_FORBIDDEN,
                 )
+            file_id = request.data.get("file")
+            if file_id and not _can_attach_file(request.user, file_id):
+                return Response(
+                    {"success": False, "error": {"code": "VALIDATION_ERROR", "message": "Choose a file you uploaded."}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             submission = AssignmentSubmission.objects.create(
                 assignment=assignment,
                 student=request.user,
-                file_id=request.data.get("file") or None,
+                file_id=file_id or None,
                 note=request.data.get("note", ""),
                 is_late=bool(assignment.due_at and now > assignment.due_at),
             )
@@ -468,6 +478,11 @@ class AssignmentSubmissionDetailView(APIView):
                 except (InvalidOperation, TypeError):
                     return Response(
                         {"success": False, "error": {"code": "VALIDATION_ERROR", "message": "Invalid grade value."}},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if not grade.is_finite() or grade < 0 or (submission.assignment.points_possible and grade > submission.assignment.points_possible):
+                    return Response(
+                        {"success": False, "error": {"code": "VALIDATION_ERROR", "message": "Grade must be within the assignment's points."}},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 submission.grade = grade
