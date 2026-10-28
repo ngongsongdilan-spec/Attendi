@@ -43,7 +43,7 @@ class UserListView(APIView):
                 | Q(student_profile__student_number__icontains=search)
                 | Q(lecturer_profile__staff_number__icontains=search)
             )
-        qs = qs.order_by("email")[:200]
+        qs = qs.order_by("email")
         return Response(AdminUserSerializer(qs, many=True).data)
 
 
