@@ -5,6 +5,7 @@ from . import views
 urlpatterns = [
     path("class-sessions/<uuid:session_id>/attendance/", views.StartAttendanceView.as_view(), name="start-attendance"),
     path("attendance/sessions/", views.MyAttendanceSessionsView.as_view(), name="my-attendance-sessions"),
+    path("devices/register/", views.DeviceRegisterView.as_view(), name="device-register"),
     path("attendance/start-flex/", views.FlexibleStartAttendanceView.as_view(), name="start-attendance-flex"),
     path("attendance/offline-sync/", views.OfflineSyncView.as_view(), name="attendance-offline-sync"),
     path("attendance/<uuid:attendance_session_id>/checkpoints/", views.CheckpointsView.as_view(), name="checkpoints"),
@@ -22,6 +23,9 @@ urlpatterns = [
     path("attendance/scan/", views.ScanView.as_view(), name="attendance-scan"),
     path("attendance/<uuid:attendance_session_id>/", views.AttendanceStatusView.as_view(), name="attendance-status"),
     path("attendance/<uuid:attendance_session_id>/records/", views.AttendanceSessionDetailView.as_view(), name="attendance-session-records"),
+    path("attendance/<uuid:attendance_session_id>/integrity/", views.AttendanceIntegrityView.as_view(), name="attendance-integrity"),
+    path("attendance/<uuid:attendance_session_id>/integrity/groups/<uuid:group_id>/students/<uuid:student_id>/", views.VerifyDeviceGroupStudentView.as_view(), name="attendance-integrity-verify"),
+    path("attendance/<uuid:attendance_session_id>/audit/", views.AttendanceAuditView.as_view(), name="attendance-audit"),
     path("class-sessions/<uuid:session_id>/attendance/records/", views.SessionRecordsView.as_view(), name="session-records"),
     path("students/me/attendance/", views.MyAttendanceView.as_view(), name="my-attendance"),
     path("attendance/records/<uuid:record_id>/", views.CorrectRecordView.as_view(), name="correct-record"),

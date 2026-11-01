@@ -90,6 +90,63 @@ class AttendanceCheckpoint(TimeStampedUUIDModel):
         return f"Checkpoint {self.checkpoint_number} - {self.student.email}"
 
 
+class AttendanceDevice(TimeStampedUUIDModel):
+    """Opaque browser/device installation identity used for correlation only.
+
+    The raw credential is returned to the browser once and never stored; only
+    its SHA-256 digest is kept. A device is not an authentication credential and
+    can be shared by multiple accounts, so it deliberately has no owner.
+    """
+
+    credential_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    last_seen_at = models.DateTimeField(default=timezone.now, db_index=True)
+    user_agent = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"AttendanceDevice({self.id})"
+
+
+class AttendanceDeviceGroup(TimeStampedUUIDModel):
+    """One device used during one attendance session.
+
+    Individual attendance records stay independent; this row only carries the
+    integrity/verification state and a monotonically increasing version for
+    clients that poll or receive live updates.
+    """
+
+    class IntegrityStatus(models.TextChoices):
+        NORMAL = "NORMAL", "Normal"
+        REVIEW_REQUIRED = "REVIEW_REQUIRED", "Verification required"
+        REVIEWED = "REVIEWED", "Reviewed"
+
+    attendance_session = models.ForeignKey(
+        AttendanceSession, on_delete=models.CASCADE, related_name="device_groups"
+    )
+    device = models.ForeignKey(
+        AttendanceDevice, on_delete=models.CASCADE, related_name="attendance_groups"
+    )
+    integrity_status = models.CharField(
+        max_length=20, choices=IntegrityStatus.choices, default=IntegrityStatus.NORMAL, db_index=True
+    )
+    student_count = models.PositiveIntegerField(default=0)
+    version = models.PositiveIntegerField(default=1)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["attendance_session", "device"], name="unique_session_device_group"
+            ),
+        ]
+
+    def __str__(self):
+        return f"AttendanceDeviceGroup({self.device_id} - {self.attendance_session_id})"
+
+
 class AttendanceRecord(TimeStampedUUIDModel):
     """Permanent attendance record in PostgreSQL (BR-040).
 
@@ -105,9 +162,20 @@ class AttendanceRecord(TimeStampedUUIDModel):
     checkpoint = models.ForeignKey(
         AttendanceCheckpoint, null=True, blank=True, on_delete=models.SET_NULL, related_name="records"
     )
+    device = models.ForeignKey(
+        AttendanceDevice, null=True, blank=True, on_delete=models.SET_NULL, related_name="attendance_records"
+    )
+    device_group = models.ForeignKey(
+        AttendanceDeviceGroup, null=True, blank=True, on_delete=models.SET_NULL, related_name="records"
+    )
     recorded_at = models.DateTimeField(default=timezone.now)
     verification_method = models.CharField(max_length=20, choices=VerificationMethod.choices, default=VerificationMethod.QR_SCAN)
     status = models.CharField(max_length=20, default="PRESENT")
+    integrity_verified_at = models.DateTimeField(null=True, blank=True)
+    integrity_verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="attendance_integrity_verifications",
+    )
     offline_idempotency_key = models.CharField(max_length=64, unique=True, null=True, blank=True)
     capture_slot_index = models.PositiveIntegerField(null=True, blank=True)
     capture_verified_at = models.DateTimeField(null=True, blank=True)

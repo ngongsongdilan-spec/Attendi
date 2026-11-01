@@ -270,7 +270,7 @@ def station_qr_payload(session, checkpoint, version=1):
     }
 
 
-def validate_and_record_scan(token: str, requesting_user) -> dict:
+def validate_and_record_scan(token: str, requesting_user, *, device=None, request=None) -> dict:
     """Validate a scanned token and record attendance if valid (FR-045, API Spec §30).
 
     Returns a dict with status info and HTTP status code.
@@ -286,7 +286,7 @@ def validate_and_record_scan(token: str, requesting_user) -> dict:
             session = AttendanceSession.objects.select_for_update().filter(id=claims["session_id"]).first()
             if session is None:
                 return {"success": False, "error_code": "TOKEN_INVALID", "message": "Invalid QR code.", "http_status": 400}
-            return record_v2_scan(session, requesting_user, claims)
+            return record_v2_scan(session, requesting_user, claims, device=device, request=request)
 
     key = None
     matched_session_id = None
@@ -384,6 +384,10 @@ def validate_and_record_scan(token: str, requesting_user) -> dict:
             checkpoint_id=checkpoint_id,
             verification_method="QR_SCAN",
         )
+        if device is not None:
+            from .devices import attach_record_to_device
+
+            attach_record_to_device(record, device, request=request)
         station = activate_scanned_station(session, requesting_user)
 
         # Points: scanners earn 4 pts (projector or student station); the

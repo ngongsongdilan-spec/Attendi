@@ -49,6 +49,7 @@ def validate_capture_window(session, claims, *, offline, now=None):
 def record_v2_scan(
     session, student, claims, *, offline=False, batch_id=None,
     enrolled=None, existing_record=None, existing_checked=False,
+    device=None, request=None,
 ):
     """Write one validated capture while the caller holds the session lock."""
     now = timezone.now()
@@ -132,6 +133,11 @@ def record_v2_scan(
                 "attendance_record_id": str(existing_record.id), "http_status": 200,
             }
         return reject("ALREADY_ATTENDED", "Attendance already recorded for this session.", 409)
+
+    if device is not None:
+        from .devices import attach_record_to_device
+
+        attach_record_to_device(record, device, request=request)
 
     station = None
     if not offline:

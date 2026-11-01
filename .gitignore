@@ -4,8 +4,6 @@ venv/
 
 # Local secrets. .env.example and .env.production.example are the templates and
 # ARE tracked; .env is not.
-.env
-.env.production
 
 __pycache__/
 *.py[cod]
@@ -29,6 +27,7 @@ staticfiles/
 *.swp
 *.swo
 .vercel
-.env*
 .gitignore
 branch_structure.json
+config.bat
+node_modules
