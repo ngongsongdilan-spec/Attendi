@@ -181,7 +181,7 @@ class TestAuthCookieAttributes:
 class TestCrossSiteCookieFallback:
     """The cross-site (SameSite=None) path, kept working for iOS 17+ via CHIPS."""
 
-    def test_partitioned_flag_is_applied_when_cross_site(self, user, settings, monkeypatch):
+    def test_partitioned_flag_is_applied_when_cross_site(self, user, settings):
         """CHIPS must reach the wire, not just the settings object.
 
         Django's set_cookie() has no `partitioned` kwarg, so this exercises the
@@ -191,8 +191,8 @@ class TestCrossSiteCookieFallback:
 
         from rest_framework.test import APIClient
 
-        monkeypatch.setattr(settings, "COOKIE_SAMESITE", "None")
-        monkeypatch.setattr(settings, "COOKIE_PARTITIONED", True)
+        settings.COOKIE_SAMESITE = "None"
+        settings.COOKIE_PARTITIONED = True
 
         client = APIClient()
         resp = _login(client)
@@ -209,14 +209,14 @@ class TestCrossSiteCookieFallback:
         # CSRF cookie must match, or Safari treats it as a distinct cookie.
         assert resp.cookies["csrftoken"]["partitioned"], "csrf cookie missing Partitioned"
 
-    def test_partitioned_appears_in_raw_set_cookie_header(self, user, settings, monkeypatch):
+    def test_partitioned_appears_in_raw_set_cookie_header(self, user, settings):
         """Belt-and-braces: assert it survives into the serialised header bytes."""
         import http.cookies
 
         from rest_framework.test import APIClient
 
-        monkeypatch.setattr(settings, "COOKIE_SAMESITE", "None")
-        monkeypatch.setattr(settings, "COOKIE_PARTITIONED", True)
+        settings.COOKIE_SAMESITE = "None"
+        settings.COOKIE_PARTITIONED = True
 
         client = APIClient()
         resp = _login(client)
