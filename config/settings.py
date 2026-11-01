@@ -336,6 +336,10 @@ REST_FRAMEWORK = {
         "attendance_history_poll": env("ATTENDANCE_HISTORY_POLL_RATE", "12/minute"),
         "attendance_station_token": env("ATTENDANCE_STATION_TOKEN_RATE", "12/minute"),
         "attendance_sync": env("ATTENDANCE_SYNC_RATE", "30/minute"),
+        # Device registration is idempotent but still rate-limited per user.
+        "attendance_device_register": env("ATTENDANCE_DEVICE_REGISTER_RATE", "20/minute"),
+        # Attendance integrity verification allows higher throughput during class reviews.
+        "attendance_verify": env("ATTENDANCE_VERIFY_RATE", "120/minute"),
     },
 }
 
