@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Prefetch, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -21,9 +21,17 @@ from apps.academics.services import enroll_cohort
 from apps.core.scoping import can_administer_offering, is_offering_teacher, scope_by_department
 from apps.core.permissions import IsLecturer, IsLecturerOrAdmin, IsStudent
 from apps.core.throttling import PollingRateThrottle
+from apps.audit.models import AuditLog
 from apps.audit.services import audit
 
-from .models import AttendanceCheckpoint, AttendanceRecord, AttendanceSession, PointsLedger
+from .devices import (
+    detach_record_from_device, mark_record_verified, register_device,
+    resolve_device, verify_group_student,
+)
+from .models import (
+    AttendanceCheckpoint, AttendanceDeviceGroup, AttendanceRecord,
+    AttendanceSession, PointsLedger,
+)
 from .offline import record_v2_scan
 from .points import POINTS, award_manual_points, award_station_points, auto_select_stations
 from .read_cache import (
@@ -32,9 +40,11 @@ from .read_cache import (
 )
 from .serializers import (
     AttendanceCheckpointSerializer,
+    AttendanceDeviceGroupSerializer,
     AttendanceRecordSerializer,
     AttendanceSessionSerializer,
     CredentialBundleSerializer,
+    DeviceRegisterSerializer,
     OfflineSyncSerializer,
     ScanRequestSerializer,
 )
@@ -46,6 +56,52 @@ from .token_store import (
 ADMIN_ROLES = {"SYSTEM_ADMIN", "FACULTY_ADMIN", "DEPARTMENT_ADMIN"}
 
 
+def _request_device(request, data):
+    """Resolve an optional device credential; never trust a bare device id."""
+    device_id = data.get("device_id") or request.headers.get("X-Device-Id")
+    credential = data.get("device_credential") or request.headers.get("X-Device-Credential")
+    if not device_id or not credential:
+        return None
+    return resolve_device(device_id, credential)
+
+
+def _attendance_records(session):
+    return AttendanceRecord.objects.filter(attendance_session=session).select_related(
+        "student", "student__student_profile", "student__student_profile__department",
+        "device", "device_group",
+    )
+
+
+def _attendance_groups(session, records=None):
+    records = records if records is not None else _attendance_records(session)
+    return AttendanceDeviceGroup.objects.filter(
+        attendance_session=session, student_count__gt=0,
+    ).select_related("device").prefetch_related(
+        Prefetch("records", queryset=records.order_by("-recorded_at"), to_attr="display_records")
+    )
+
+
+def _group_integrity_summary(groups):
+    summary = {
+        "total_groups": len(groups),
+        "shared_groups": 0,
+        "review_required": 0,
+        "reviewed": 0,
+        "pending_students": 0,
+    }
+    for group in groups:
+        records = getattr(group, "display_records", None) or list(group.records.all())
+        verified = sum(1 for record in records if record.integrity_verified_at is not None)
+        if group.student_count >= 2:
+            summary["shared_groups"] += 1
+        if group.integrity_status == AttendanceDeviceGroup.IntegrityStatus.REVIEW_REQUIRED:
+            summary["review_required"] += 1
+            summary["pending_students"] += max(0, group.student_count - verified)
+        elif group.integrity_status == AttendanceDeviceGroup.IntegrityStatus.REVIEWED:
+            summary["reviewed"] += 1
+    return summary
+
+
 def _can_manage_attendance(user, offering, lecturer_id):
     if user.role in ADMIN_ROLES:
         return can_administer_offering(user, offering)
@@ -54,6 +110,15 @@ def _can_manage_attendance(user, offering, lecturer_id):
     # A co-lecturer may run attendance for the offering even when another
     # lecturer owns the class definition or opened the session.
     return lecturer_id == user.id or is_offering_teacher(user, offering)
+
+
+def _can_view_attendance(user, session):
+    """Object-level read permission for a session register/integrity view."""
+    offering = session.course_offering
+    if user.role in ADMIN_ROLES:
+        return can_administer_offering(user, offering)
+    class_definition = session.class_session.class_definition
+    return user.id == class_definition.lecturer_id or is_offering_teacher(user, offering)
 
 
 def _parse_headcount(value):
@@ -673,7 +738,11 @@ class ScanView(APIView):
     def post(self, request):
         serializer = ScanRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        result = validate_and_record_scan(serializer.validated_data["token"], request.user)
+        device = _request_device(request, serializer.validated_data)
+        result = validate_and_record_scan(
+            serializer.validated_data["token"], request.user,
+            device=device, request=request,
+        )
         http_status = result.pop("http_status")
         if result.get("success"):
             return Response(result, status=http_status)
@@ -695,6 +764,7 @@ class OfflineSyncView(APIView):
         serializer.is_valid(raise_exception=True)
         session_id = serializer.validated_data["session_id"]
         captures = serializer.validated_data["captures"]
+        device = _request_device(request, serializer.validated_data)
         batch_id = uuid4()
         results = []
 
@@ -733,6 +803,7 @@ class OfflineSyncView(APIView):
                                 session, request.user, claims, offline=True,
                                 batch_id=batch_id, enrolled=enrolled,
                                 existing_record=existing, existing_checked=True,
+                                device=device, request=request,
                             )
                             if result["success"] and not result.get("duplicate"):
                                 existing = SimpleNamespace(id=UUID(result["attendance_record_id"]))
@@ -964,7 +1035,8 @@ class SessionRecordsView(APIView):
             )
         sessions = AttendanceSession.objects.filter(class_session=cs)
         records = AttendanceRecord.objects.filter(attendance_session__in=sessions).select_related(
-            "student", "student__student_profile", "student__student_profile__department"
+            "student", "student__student_profile", "student__student_profile__department",
+            "device", "device_group",
         )
         return Response(AttendanceRecordSerializer(records, many=True).data)
 
@@ -994,12 +1066,10 @@ class AttendanceSessionDetailView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        records = AttendanceRecord.objects.filter(
-            attendance_session=session
-        ).select_related(
-            "student", "student__student_profile", "student__student_profile__department"
-        )
-        present = records.filter(status__in=["PRESENT", "LATE"]).count()
+        records_qs = _attendance_records(session).order_by("-recorded_at")
+        records = list(records_qs)
+        groups = list(_attendance_groups(session, records_qs))
+        present = sum(1 for record in records if record.status in {"PRESENT", "LATE"})
         eligible = Enrollment.objects.filter(
             course_offering=offering,
             status=Enrollment.Status.ACTIVE,
@@ -1024,6 +1094,8 @@ class AttendanceSessionDetailView(APIView):
                 "total_eligible": eligible,
             },
             "records": AttendanceRecordSerializer(records, many=True).data,
+            "groups": AttendanceDeviceGroupSerializer(groups, many=True).data,
+            "integrity_summary": _group_integrity_summary(groups),
         })
 
 
@@ -1086,8 +1158,12 @@ class CorrectRecordView(APIView):
             )
         record.status = new_status
         record.save(update_fields=["status", "updated_at"])
+        if record.device_group_id:
+            mark_record_verified(record, actor=request.user, old_status=old_status, request=request)
         audit(user=request.user, action="ATTENDANCE_CORRECTED", resource_type="AttendanceRecord", resource_id=record.id,
-              request=request, metadata={"old_status": old_status, "new_status": new_status, "student_id": str(record.student_id)})
+              request=request, metadata={"old_status": old_status, "new_status": new_status,
+                                         "student_id": str(record.student_id),
+                                         "session_id": str(record.attendance_session_id)})
         return Response(AttendanceRecordSerializer(record).data)
 
     def delete(self, request, record_id):
@@ -1103,8 +1179,182 @@ class CorrectRecordView(APIView):
             "status": record.status,
             "session_id": str(record.attendance_session_id),
         }
-        PointsLedger.objects.filter(attendance_session=record.attendance_session, student=record.student).delete()
-        record.delete()
-        audit(user=request.user, action="ATTENDANCE_RECORD_DELETED", resource_type="AttendanceRecord",
-              resource_id=record_id, request=request, metadata=metadata)
+        with transaction.atomic():
+            detach_record_from_device(record, actor=request.user, request=request)
+            PointsLedger.objects.filter(attendance_session=record.attendance_session, student=record.student).delete()
+            record.delete()
+            audit(user=request.user, action="ATTENDANCE_RECORD_DELETED", resource_type="AttendanceRecord",
+                  resource_id=record_id, request=request, metadata=metadata)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class DeviceRegisterView(APIView):
+    """POST /api/v1/devices/register/
+
+    Verify a browser-installation identity or issue a replacement. The
+    credential proves continuity only; it never authenticates a user and is
+    never stored in plain text.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "attendance_device_register"
+
+    def post(self, request):
+        serializer = DeviceRegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        device, credential, created, replaced = register_device(
+            device_id=serializer.validated_data.get("device_id"),
+            credential=serializer.validated_data.get("device_credential"),
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+        )
+        if created:
+            audit(
+                user=request.user,
+                action="ATTENDANCE_DEVICE_REGISTERED",
+                resource_type="AttendanceDevice",
+                resource_id=device.id,
+                request=request,
+                metadata={"replaced_existing": replaced},
+            )
+        response = Response({
+            "device_id": str(device.id),
+            "device_credential": credential,
+            "created": created,
+            "replaced": replaced,
+            "verified": not created,
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+
+class AttendanceIntegrityView(APIView):
+    """GET /api/v1/attendance/{session_id}/integrity/
+
+    Return the backend-correlated device groups. Normal single-account groups
+    are included so the lecturer UI can use the hybrid table without doing any
+    grouping of its own.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, attendance_session_id):
+        session = get_object_or_404(AttendanceSession, id=attendance_session_id)
+        if not _can_view_attendance(request.user, session):
+            return Response(
+                {"success": False, "error": {"code": "FORBIDDEN", "message": "You can only view attendance for classes you teach."}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        records_qs = _attendance_records(session)
+        groups_qs = _attendance_groups(session, records_qs)
+        status_filter = request.query_params.get("status")
+        if status_filter in AttendanceDeviceGroup.IntegrityStatus.values:
+            groups_qs = groups_qs.filter(integrity_status=status_filter)
+        if request.query_params.get("shared", "").lower() in {"1", "true", "yes"}:
+            groups_qs = groups_qs.filter(student_count__gte=2)
+
+        groups = list(groups_qs)
+        priority = {
+            AttendanceDeviceGroup.IntegrityStatus.REVIEW_REQUIRED: 0,
+            AttendanceDeviceGroup.IntegrityStatus.NORMAL: 1,
+            AttendanceDeviceGroup.IntegrityStatus.REVIEWED: 2,
+        }
+        groups.sort(key=lambda group: (priority.get(group.integrity_status, 3), group.created_at))
+
+        response = Response({
+            "session_id": str(session.id),
+            "integrity_summary": _group_integrity_summary(groups),
+            "groups": AttendanceDeviceGroupSerializer(groups, many=True).data,
+        })
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+
+class AttendanceAuditView(APIView):
+    """GET /api/v1/attendance/{session_id}/audit/
+
+    Lecturer-facing, immutable history of attendance integrity decisions.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, attendance_session_id):
+        session = get_object_or_404(AttendanceSession, id=attendance_session_id)
+        if not _can_view_attendance(request.user, session):
+            return Response(
+                {"success": False, "error": {"code": "FORBIDDEN", "message": "You can only view attendance for classes you teach."}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        try:
+            limit = int(request.query_params.get("limit", 200))
+        except (TypeError, ValueError):
+            limit = 200
+        limit = max(1, min(limit, 500))
+
+        group_ids = session.device_groups.values_list("id", flat=True)
+        record_ids = session.records.values_list("id", flat=True)
+        events = AuditLog.objects.filter(
+            Q(resource_type="AttendanceSession", resource_id=session.id)
+            | Q(resource_type="AttendanceDeviceGroup", resource_id__in=group_ids)
+            | Q(resource_type="AttendanceRecord", resource_id__in=record_ids)
+        ).select_related("actor").order_by("-created_at")[:limit]
+
+        response = Response([
+            {
+                "id": str(event.id),
+                "action": event.action,
+                "actor_id": str(event.actor_id) if event.actor_id else None,
+                "actor_name": event.actor.get_full_name() if event.actor else None,
+                "resource_type": event.resource_type,
+                "resource_id": str(event.resource_id) if event.resource_id else None,
+                "metadata": event.metadata,
+                "created_at": event.created_at,
+            }
+            for event in events
+        ])
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+
+class VerifyDeviceGroupStudentView(APIView):
+    """PATCH /api/v1/attendance/{session_id}/integrity/groups/{group_id}/students/{student_id}/
+
+    Mark one student in a shared-device group present or absent. Each decision
+    is independent, audited, and advances the group's version.
+    """
+
+    permission_classes = [IsAuthenticated, IsLecturerOrAdmin]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "attendance_verify"
+
+    def patch(self, request, attendance_session_id, group_id, student_id):
+        session = get_object_or_404(AttendanceSession, id=attendance_session_id)
+        if not _can_manage_attendance(request.user, session.course_offering, session.lecturer_id):
+            return Response(
+                {"success": False, "error": {"code": "FORBIDDEN", "message": "Only this session's lecturer can verify students."}},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        group = get_object_or_404(
+            AttendanceDeviceGroup, id=group_id, attendance_session=session,
+        )
+        new_status = request.data.get("status")
+        reason = str(request.data.get("reason") or "")[:500]
+        try:
+            record, _group = verify_group_student(
+                group, student_id, new_status,
+                actor=request.user, reason=reason, request=request,
+            )
+        except ValueError as exc:
+            return Response(
+                {"success": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        records_qs = _attendance_records(session)
+        group = _attendance_groups(session, records_qs).get(pk=group.pk)
+        record = records_qs.get(pk=record.pk)
+        return Response({
+            "group": AttendanceDeviceGroupSerializer(group).data,
+            "record": AttendanceRecordSerializer(record).data,
+        })
